@@ -94,10 +94,10 @@
 
 .dpad{
   display: grid;
-  grid-template-columns: 96px 96px 96px;
-  grid-template-rows: 96px 96px 96px;
-  column-gap: 44px; /* bigger horizontal spread */
-  row-gap: 22px;
+  grid-template-columns: 84px 84px 84px;
+  grid-template-rows: 84px 84px 84px;
+  column-gap: 34px; /* bigger horizontal spread */
+  row-gap: 18px;
   justify-content: center;
   align-content: center;
 }
@@ -110,8 +110,8 @@
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
-  width: 96px;
-  height: 96px;
+  width: 84px;
+  height: 84px;
   border-radius: 999px;
   border: 2px solid rgba(255,255,255,0.22);
   background: rgba(255,255,255,0.14);
@@ -183,6 +183,64 @@
 }
 #startOverlay .startBtn:active{ transform: scale(0.98); }
 
+
+
+/* ===== MOBILE FIT (no scroll) ===== */
+@media (max-width: 700px){
+  html, body{ height:100vh; overflow:hidden; }
+  #wrap{ padding:8px; height: calc(100vh - 220px); }
+  #frame{
+    width: min(980px, 96vw);
+    height: calc(100vh - 240px);
+    max-height: 54vh;
+  }
+
+  /* Pin HUD to bottom so page doesn't grow taller than viewport */
+  #hud{
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    max-width: none;
+    margin: 0;
+    padding: 10px 12px 14px;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(5,5,10,0.70);
+    backdrop-filter: blur(6px);
+  }
+
+  .touchPad{
+    padding: 12px 12px;
+    gap: 12px;
+    border-radius: 26px;
+  }
+
+  .dpad{
+    grid-template-columns: 72px 72px 72px;
+    grid-template-rows: 72px 72px 72px;
+    column-gap: 28px;
+    row-gap: 16px;
+  }
+
+  .tbtn{
+    width: 72px;
+    height: 72px;
+    font-size: 24px;
+    border-radius: 18px;
+  }
+
+  .actionsRow{ gap: 18px; margin-top: 6px; }
+  .abtn{ min-width: 132px; height: 54px; font-size: 16px; border-radius: 16px; }
+
+  /* Make the cats pill compact and centered */
+  .pill{
+    width: 100%;
+    max-width: 980px;
+    text-align: center;
+    padding: 10px 14px;
+    border-radius: 22px;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -240,7 +298,7 @@ const SECRET_CAT = "Neon";
 const ALL_CATS = [...BASE_CATS, SECRET_CAT];
 
 // Secret unlock: ↑ ↓ ↑ ↓ ← → ← → then press "Switch cats"
-const SECRET_SEQ = ["up","down","up","down","left","right","left","right","cats"];
+const SECRET_SEQ = ["up","down","up","down","left","right","left","right"];
 const secretBuffer = [];
 
 
@@ -425,16 +483,23 @@ function cycleCats(){
   resetRun();
 }
 function markInput(token){
-  secretBuffer.push(token);
-  if(secretBuffer.length > SECRET_SEQ.length) secretBuffer.shift();
-  if(secretBuffer.length < SECRET_SEQ.length) return;
+  // Record only direction tokens for the Konami-style pattern.
+  if(token !== "cats"){
+    secretBuffer.push(token);
+    if(secretBuffer.length > SECRET_SEQ.length) secretBuffer.shift();
+    return;
+  }
 
+  // "Switch cats" acts as the final confirm input.
+  if(secretBuffer.length !== SECRET_SEQ.length) return;
   for(let i=0;i<SECRET_SEQ.length;i++){
     if(secretBuffer[i] !== SECRET_SEQ[i]) return;
   }
+
   // matched!
   if(!progress.neonUnlocked){
     progress.neonUnlocked = true;
+
     // Immediately counts as an extra unlocked cat, as requested.
     saveProgress(progress);
     updateHUD();
@@ -442,6 +507,7 @@ function markInput(token){
 }
 
 function saveProgress(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
+(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
 
 /* =========================
    1D NOISE
