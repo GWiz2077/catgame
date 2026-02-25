@@ -56,8 +56,7 @@
   #cats{ text-align:center; padding:14px 16px; }
   .catsLine1, .catsLine2{ text-align:center; width:100%; }
   .catsLine1{ font-size: 16px; }
-  .catsLine2{ font-size: 16px; margin-top:6px; }
-  .muted { opacity: .8; }
+  .catsLine2{ font-size: 14px; margin-top:6px; opacity:.85; }
 
   #resetBtn{
     position:absolute;
@@ -166,11 +165,11 @@
     display:flex;
     flex-direction:column;
     align-items:center;
-    gap:14px;
+    gap:12px;
     padding: 22px 18px;
   }
   #startOverlay .startBtn{
-    width: min(240px, 70vw);
+    width: min(260px, 74vw);
     height: 52px;
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.28);
@@ -183,32 +182,6 @@
   }
   #startOverlay .startBtn:active{ transform: scale(0.98); }
 
-  @media (max-width: 700px){
-    :root{ --hudH: 300px; }
-    html, body{ height:100vh; overflow:hidden; }
-    #wrap{ padding: 8px; padding-bottom: calc(var(--hudH) + env(safe-area-inset-bottom)); }
-    #frame{ width: min(980px, 96vw); height: calc(100vh - var(--hudH) - 24px); max-height: none; }
-    #hud{
-      position: fixed; left: 0; right: 0; bottom: 0;
-      z-index: 5000; pointer-events: auto;
-      max-width: none; margin: 0;
-      padding: 10px 12px calc(14px + env(safe-area-inset-bottom));
-      justify-content: center; gap: 12px;
-      background: rgba(5,5,10,0.78);
-      backdrop-filter: blur(6px);
-    }
-    .touchPad{ padding: 10px 12px; gap: 10px; border-radius: 22px; }
-    .dpad{
-      grid-template-columns: 60px 60px 60px;
-      grid-template-rows: 60px 60px 60px;
-      column-gap: 22px; row-gap: 14px;
-    }
-    .tbtn{ width: 60px; height: 60px; font-size: 22px; border-radius: 16px; }
-    .actionsRow{ gap: 14px; margin-top: 6px; }
-    .abtn{ min-width: 120px; height: 46px; font-size: 15px; border-radius: 14px; }
-    .pill{ width: 100%; max-width: 980px; text-align: center; padding: 10px 14px; border-radius: 20px; }
-  }
-
   html, body{ height:100%; margin:0; overflow:hidden; overscroll-behavior:none; }
   body{ --hudH: 230px; }
   #frame{ height: calc(100vh - var(--hudH)); max-height: calc(100vh - var(--hudH)); }
@@ -219,16 +192,38 @@
     display: flex; flex-direction: column; gap: 10px;
     justify-content: center; align-items: center;
     z-index: 5000; pointer-events: auto;
+    background: rgba(5,5,10,0.78);
+    backdrop-filter: blur(6px);
   }
   #touchControls{ width: 100%; display:flex; flex-direction: column; align-items: center; }
   #cats{ width: 100%; max-width: 980px; }
   #sprites, canvas{ pointer-events: none; }
   #resetBtn{ pointer-events: auto; z-index: 6000; }
+
+  /* --- Mobile: make the playfield more rectangle + shrink controls --- */
+  @media (max-width: 700px){
+    body{ --hudH: 250px; }
+    #wrap{ padding: 8px; padding-bottom: calc(var(--hudH) + env(safe-area-inset-bottom)); }
+    #frame{
+      width: min(980px, 96vw);
+      /* rectangle-ish: height based on width */
+      height: min(calc(96vw * 0.48), calc(100vh - var(--hudH) - 16px));
+      max-height: min(calc(96vw * 0.48), calc(100vh - var(--hudH) - 16px));
+    }
+    .dpad{
+      grid-template-columns: 54px 54px 54px;
+      grid-template-rows: 54px 54px 54px;
+      column-gap: 18px; row-gap: 12px;
+    }
+    .tbtn{ width: 54px; height: 54px; font-size: 20px; border-radius: 14px; }
+    .abtn{ min-width: 116px; height: 44px; font-size: 14px; border-radius: 14px; }
+    #cats .catsLine1{ font-size: 14px; }
+    #cats .catsLine2{ font-size: 12px; }
+  }
 </style>
 </head>
 
 <body>
-
 <div id="wrap">
   <div id="frame">
     <canvas id="bg" width="980" height="380"></canvas>
@@ -263,15 +258,19 @@
 
 <script>
 /* =========================
-   CONFIG
+   RESPONSIVE SCALE (smaller on phone)
    ========================= */
-const SPRITE_W = 16;
-const SPRITE_H = 16;
-const SCALE = 6;
+const IS_MOBILE = matchMedia("(max-width: 700px)").matches || matchMedia("(pointer: coarse)").matches;
+const SCALE = IS_MOBILE ? 4 : 6;     // <-- smaller sprites on phone
+const SPRITE_W = 16, SPRITE_H = 16;
 const CAT_DRAW_W = SPRITE_W * SCALE;
 const CAT_DRAW_H = SPRITE_H * SCALE;
 
+/* =========================
+   CONFIG
+   ========================= */
 const STORAGE_KEY = "cat_runner_dom_progress_v1";
+const ENDLESS_BEST_KEY = "cat_runner_endless_best_v1";
 
 const BASE_CATS = ["Calico","Chromic","Grey","Orange","Tabby"];
 const SECRET_CAT = "Neon";
@@ -282,32 +281,26 @@ const ALL_CATS = [...BASE_CATS, SECRET_CAT];
 */
 const KONAMI_DIRS = ["up","up","down","down","left","right","left","right"];
 let konamiIndex = 0;
-
 function konamiReset(){ konamiIndex = 0; }
 function konamiFeed(token){
-  // confirm step
   if(token === "cats"){
     if(konamiIndex === KONAMI_DIRS.length) onKonami();
     konamiReset();
     return;
   }
-
-  // only arrow tokens matter; anything else resets
-  if(token !== "up" && token !== "down" && token !== "left" && token !== "right"){
+  if(!["up","down","left","right"].includes(token)){
     konamiReset();
     return;
   }
-
   const expected = KONAMI_DIRS[konamiIndex];
   if(token === expected){
     konamiIndex++;
   } else {
-    // strict reset; allow immediate restart if they hit up
     konamiIndex = (token === "up") ? 1 : 0;
   }
 }
 
-// Obstacles (relative from CatGame folder)
+// Obstacles
 const OBSTACLE_LIBRARY = [
   { type:"overhead", url:"obstacles/air obstacles/FlyingFish.png",  w: 16, h: 10 },
   { type:"overhead", url:"obstacles/air obstacles/FlyingPizza.gif", w: 16, h: 11 },
@@ -318,37 +311,29 @@ const OBSTACLE_LIBRARY = [
 
 // Power-up
 const POWERUP_YARN_URL = "power-ups/YarnBall.png";
-const POWERUP_YARN_W = 12;
-const POWERUP_YARN_H = 12;
+const POWERUP_YARN_W = 12, POWERUP_YARN_H = 12;
 const POWERUP_SCORE_BONUS = 5;
-
-const POWERUP_SPAWN_MIN = 4.5;
-const POWERUP_SPAWN_MAX = 8.5;
+const POWERUP_SPAWN_MIN = 4.5, POWERUP_SPAWN_MAX = 8.5;
 const POWERUP_MAX_ACTIVE = 1;
 const POWERUP_SPEED_MULT = 1.35;
-
-const POWERUP_BOUNCE_AMP_MIN = 10;
-const POWERUP_BOUNCE_AMP_MAX = 22;
-const POWERUP_BOUNCE_FREQ_MIN = 5.0;
-const POWERUP_BOUNCE_FREQ_MAX = 9.0;
+const POWERUP_BOUNCE_AMP_MIN = 10, POWERUP_BOUNCE_AMP_MAX = 22;
+const POWERUP_BOUNCE_FREQ_MIN = 5.0, POWERUP_BOUNCE_FREQ_MAX = 9.0;
 const POWERUP_BOUNCE_DECAY = 0.20;
-
 const POWERUP_MIDAIR_CHANCE = 0.45;
-const POWERUP_MIDAIR_OFFSET_MIN = 60;
-const POWERUP_MIDAIR_OFFSET_MAX = 130;
+const POWERUP_MIDAIR_OFFSET_MIN = 60, POWERUP_MIDAIR_OFFSET_MAX = 130;
 
 // Gameplay
 const BASE_TARGET_SCORE = 20;
 const TARGET_INCREMENT  = 15;
-
 const BASE_SCROLL_SPEED = 400;
 const BOOST_MULTIPLIER  = 2;
 const SPEED_RAMP_PER_SCORE = 19;
-
 const GRAVITY = 2050;
 const JUMP_VELOCITY = 900;
 
-const DUCK_SCALE_Y = 0.62;
+// Duck logic: NO CROPPING, NO SQUISH. Just move down slightly.
+const DUCK_DROP_PX = Math.max(2, Math.round(CAT_DRAW_H * 0.06)); // tiny shift
+const DUCK_HITBOX_SCALE_Y = 0.62; // hitbox smaller even though sprite stays full size
 
 // Terrain
 const TERRAIN_BASE_Y = 380 * 0.80;
@@ -358,8 +343,7 @@ const TERRAIN_DETAIL = 0.35;
 const TERRAIN_SEGMENT = 18;
 
 // Spawns
-const SPAWN_MIN = 0.85;
-const SPAWN_MAX = 1.45;
+const SPAWN_MIN = 0.85, SPAWN_MAX = 1.45;
 const AIR_CHANCE = 0.35;
 
 /* =========================
@@ -388,6 +372,25 @@ function startGame(mode="story"){
   resetRun();
 }
 
+function goToStartScreen(){
+  started = false;
+  keys.right = false;
+  gameOver = false;
+  won = false;
+  score = 0;
+
+  // cleanup sprites + state
+  clearSprites();
+  obstacles = [];
+  powerUps = [];
+  player = null;
+  terrain = new Terrain();
+
+  konamiReset();
+  startOverlay?.classList.remove("hidden");
+  updateHUD();
+}
+
 startBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); startGame("story"); }, {passive:false});
 endlessBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); startGame("endless"); }, {passive:false});
 
@@ -403,7 +406,7 @@ function aabb(ax,ay,aw,ah, bx,by,bw,bh){
 }
 
 /* =========================
-   PROGRESS
+   PROGRESS + ENDLESS BEST
    ========================= */
 function loadProgress(){
   try{
@@ -435,6 +438,11 @@ function loadProgress(){
 function saveProgress(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
 
 let progress = loadProgress();
+let endlessBest = Math.max(0, Number(localStorage.getItem(ENDLESS_BEST_KEY) || 0));
+function saveEndlessBest(v){
+  endlessBest = v;
+  localStorage.setItem(ENDLESS_BEST_KEY, String(v));
+}
 
 function totalCats(){ return BASE_CATS.length + (progress.neonUnlocked ? 1 : 0); }
 function unlockedCount(){ return progress.unlocked + (progress.neonUnlocked ? 1 : 0); }
@@ -474,9 +482,12 @@ function updateHUD(){
   const selectedName = getSelectedName();
   const modeStr = started ? (gameMode === "endless" ? "Endless" : "Story") : "Paused";
 
+  const secretText = "Secret: ↑↑↓↓←→←→ then Switch cats";
+  const bestText = (gameMode === "endless") ? ` | Best: ${endlessBest}` : "";
+
   catsEl.innerHTML =
-    `<div class="catsLine1">Cats acquired: ${unlockedDisp}/${totalDisp} | Selected: ${selectedName}</div>` +
-    `<div class="catsLine2 muted">Wins: ${progress.wins} | Mode: ${modeStr} | Secret: ↑↑↓↓←→←→ then Switch cats</div>`;
+    `<div class="catsLine1">Cats acquired: ${unlockedDisp}/${totalDisp} | Selected: ${selectedName}${bestText}</div>` +
+    `<div class="catsLine2">Wins: ${progress.wins} | Mode: ${modeStr} | ${secretText}</div>`;
 }
 
 /* =========================
@@ -519,10 +530,7 @@ class Terrain {
   heightAtScreenX(sx){ return this.heightAtWorldX(this.scrollX + sx); }
   update(dt, scrollSpeed){ this.scrollX += scrollSpeed * dt; }
   draw(isStatic){
-    // NOTE: when not started, render STATIC (no performance.now animation)
     ctx.save();
-
-    // background dots (static or lightly animated)
     ctx.globalAlpha = 0.20;
     const t = isStatic ? 0 : (performance.now() * 0.00012);
     for(let i=0;i<70;i++){
@@ -533,7 +541,6 @@ class Terrain {
     }
     ctx.restore();
 
-    // terrain fill
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, H);
@@ -545,7 +552,6 @@ class Terrain {
     ctx.fillStyle = "rgba(0, 255, 200, 0.06)";
     ctx.fill();
 
-    // outline
     ctx.beginPath();
     for(let x=0; x<=W+TERRAIN_SEGMENT; x+=TERRAIN_SEGMENT){
       const y = this.heightAtScreenX(x);
@@ -555,7 +561,6 @@ class Terrain {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // scanlines (static)
     ctx.globalAlpha = 0.08;
     for(let y=0; y<H; y+=6){
       ctx.fillStyle = (y%12===0) ? "#ffffff" : "#000000";
@@ -578,7 +583,7 @@ function makeSprite(url, wpx, hpx){
   img.style.top = "0px";
   img.style.imageRendering = "pixelated";
   img.style.clipPath = "inset(0px 0px 0px 0px)";
-  img.style.transform = "translateZ(0) scaleY(1)";
+  img.style.transform = "translateZ(0)";
   return img;
 }
 
@@ -670,29 +675,21 @@ class Player {
 
     if(this.el.src !== new URL(src, location.href).href) this.el.src = src;
 
-    // NO CROPPING EVER
+    // NO CROPPING, NO SQUISH. Only a tiny downward shift when ducking.
     this.el.style.clipPath = "inset(0px 0px 0px 0px)";
+    this.el.style.transform = "translateZ(0)";
 
-    // Duck = squish, anchored to feet (no clipping)
     const isDuck = (st === "duck" && !this.paused);
-    const sY = isDuck ? DUCK_SCALE_Y : 1;
-
-    // to keep feet planted when squishing: move sprite down by (h - h*sY)
-    const gy = this.groundY();
-    const baseTop = Math.round(this.y);
-    const duckShift = Math.round(this.h - (this.h * sY));
-    const top = isDuck ? (baseTop + duckShift) : baseTop;
+    const top = Math.round(this.y + (isDuck ? DUCK_DROP_PX : 0));
 
     this.el.style.setProperty("--wpx", this.w + "px");
     this.el.style.setProperty("--hpx", this.h + "px");
     this.el.style.left = Math.round(this.x) + "px";
     this.el.style.top  = top + "px";
-    this.el.style.transform = `translateZ(0) scaleY(${sY})`;
   }
 
   hitbox(){
-    // hitbox shrinks when ducking
-    const duckFactor = this.ducking ? DUCK_SCALE_Y : 1;
+    const duckFactor = this.ducking ? DUCK_HITBOX_SCALE_Y : 1;
     const hbW = this.w * 0.62;
     const hbH = this.h * 0.82 * duckFactor;
     const hbX = this.x + this.w * 0.18;
@@ -821,7 +818,7 @@ let powerUps = [];
 let powerTimer = 0;
 let powerNextIn = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
 let spawnTimer = 0;
-let spawnNextIn = rand(0.85, 1.45);
+let spawnNextIn = rand(SPAWN_MIN, SPAWN_MAX);
 
 let score = 0;
 let targetScore = BASE_TARGET_SCORE + progress.wins * TARGET_INCREMENT;
@@ -834,11 +831,9 @@ function currentScrollSpeed(){
   const base = BASE_SCROLL_SPEED + score * SPEED_RAMP_PER_SCORE;
   return base * (keys.right ? BOOST_MULTIPLIER : 1);
 }
-
 function clearSprites(){
   while(spritesLayer.firstChild) spritesLayer.removeChild(spritesLayer.firstChild);
 }
-
 function resetRun(){
   clearSprites();
   obstacles = [];
@@ -862,14 +857,12 @@ function resetRun(){
 
   updateHUD();
 }
-
 function spawnObstacle(){
   const wantAir = Math.random() < AIR_CHANCE;
   const pool = OBSTACLE_LIBRARY.filter(o => o.type === (wantAir ? "overhead" : "ground"));
   const def = (pool.length ? pool : OBSTACLE_LIBRARY)[Math.floor(Math.random()*(pool.length ? pool.length : OBSTACLE_LIBRARY.length))];
   obstacles.push(new Obstacle(def, terrain, W + 120));
 }
-
 function drawOverlay(){
   ctx.save();
   ctx.fillStyle = "rgba(255,255,255,0.92)";
@@ -885,14 +878,11 @@ function drawOverlay(){
   }
   ctx.restore();
 }
-
 function loop(now){
   const dt = clamp((now - lastT)/1000, 0, 1/20);
   lastT = now;
 
   ctx.clearRect(0,0,W,H);
-
-  // STATIC background until started (no motion)
   terrain.draw(!started);
 
   if(!started){
@@ -969,6 +959,12 @@ function loop(now){
     }
   }
 
+  // Endless best score tracking
+  if(gameMode === "endless" && !frozen && !gameOver && score > endlessBest){
+    saveEndlessBest(score);
+    updateHUD();
+  }
+
   if(gameMode === "story" && !frozen && !gameOver && !won && score >= targetScore){
     won = true;
     if(progress.unlocked < BASE_CATS.length) progress.unlocked += 1;
@@ -986,12 +982,9 @@ function loop(now){
 
 /* =========================
    INPUT
-   - Always feed ONLY Konami first
-   - Gameplay actions ONLY if started
    ========================= */
 function handleToken(token){
   konamiFeed(token);
-
   if(!started) return;
 
   if(token === "up") player.jump();
@@ -1003,8 +996,7 @@ function handleToken(token){
 
   if(token === "left") player.togglePause();
 
-  if(token === "restart") resetRun();
-
+  if(token === "restart") goToStartScreen();
   if(token === "cats") cycleCats();
 }
 
@@ -1080,6 +1072,7 @@ resetBtn.addEventListener("click", ()=>{
     return;
   }
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(ENDLESS_BEST_KEY);
   location.reload();
 });
 
