@@ -80,6 +80,9 @@
 
 /* ===== TOUCH CONTROLS (phones/tablets) ===== */
 .touchPad{
+  --btn: clamp(56px, 14vw, 74px);
+  --gapX: clamp(18px, 5vw, 30px);
+  --gapY: clamp(12px, 3.5vw, 18px);
   flex: 1 1 100%;
   width: 100%;
   padding: 22px 18px;
@@ -94,10 +97,10 @@
 
 .dpad{
   display: grid;
-  grid-template-columns: 84px 84px 84px;
-  grid-template-rows: 84px 84px 84px;
-  column-gap: 34px; /* bigger horizontal spread */
-  row-gap: 18px;
+  grid-template-columns: var(--btn) var(--btn) var(--btn);
+  grid-template-rows: var(--btn) var(--btn) var(--btn);
+  column-gap: var(--gapX);
+  row-gap: var(--gapY);
   justify-content: center;
   align-content: center;
 }
@@ -110,8 +113,8 @@
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
-  width: 84px;
-  height: 84px;
+  width: var(--btn);
+  height: var(--btn);
   border-radius: 999px;
   border: 2px solid rgba(255,255,255,0.22);
   background: rgba(255,255,255,0.14);
@@ -124,9 +127,9 @@
 
 .actionsRow{
   display:flex;
-  gap: 34px;
+  gap: clamp(18px, 6vw, 34px);
   justify-content:center;
-  margin-top: 18px; /* pushes it down from down arrow */
+  margin-top: clamp(12px, 3.5vw, 18px);
 }
 
 .abtn{
@@ -188,16 +191,17 @@
 /* ===== MOBILE FIT (no scroll) ===== */
 @media (max-width: 700px){
   html, body{ height:100vh; overflow:hidden; }
-  #wrap{ padding:8px; height: calc(100vh - 220px); }
+  #wrap{ padding:8px 8px 320px; height: 100vh; }
   #frame{
     width: min(980px, 96vw);
-    height: calc(100vh - 240px);
-    max-height: 54vh;
+    height: calc(100vh - 360px);
+    max-height: none;
   }
 
   /* Pin HUD to bottom so page doesn't grow taller than viewport */
   #hud{
     position: fixed;
+    z-index: 9999;
     left: 0; right: 0; bottom: 0;
     max-width: none;
     margin: 0;
@@ -629,7 +633,7 @@ class Player {
     this.terrain = terrain;
     this.skin = skin;
 
-    this.x = (window.innerWidth <= 700 ? 18 : 40);
+    this.x = (window.innerWidth <= 700 ? 6 : 40);
     this.w = CAT_DRAW_W;
     this.h = CAT_DRAW_H;
 
