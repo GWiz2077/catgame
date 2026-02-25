@@ -57,6 +57,68 @@
   .muted { opacity: .8; }
   .key { padding:2px 6px; border-radius:8px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.14); }
 #resetBtn{
+  /* Touch controls (shown on phones/tablets) */
+  .touchPad{
+    flex: 1 1 100%;
+    width: 100%;
+    padding: 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.10);
+    display: grid;
+    gap: 12px;
+  }
+  .dpad{
+    display: grid;
+    grid-template-columns: 72px 72px 72px;
+    grid-template-rows: 72px 72px 72px;
+    justify-content: center;
+    align-content: center;
+    gap: 10px;
+  }
+  /* Place buttons in diamond */
+  #btnUp{ grid-column: 2; grid-row: 1; }
+  #btnLeft{ grid-column: 1; grid-row: 2; }
+  #btnRight{ grid-column: 3; grid-row: 2; }
+  #btnDown{ grid-column: 2; grid-row: 3; }
+
+  .tbtn{
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    user-select: none;
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.10);
+    color: #fff;
+    font: inherit;
+    font-size: 22px;
+    display: grid;
+    place-items: center;
+  }
+  .tbtn:active{
+    transform: scale(0.98);
+    background: rgba(255,255,255,0.16);
+  }
+  .touchRow{
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .tbtn.wide{
+    width: auto;
+    flex: 1 1 50%;
+    height: 56px;
+    font-size: 16px;
+    border-radius: 999px;
+  }
+
+  /* Hide touch UI on mouse/keyboard devices */
+  @media (hover:hover) and (pointer:fine){
+    .touchPad{ display:none; }
+  }
+
   position:absolute;
   top:10px; right:10px;
   z-index: 5;
@@ -89,14 +151,17 @@
 
 <div id="hud">
   <div class="pill" id="status">Loading…</div>
-  <div class="pill muted">
-    Controls:
-    <span class="key">↑</span> jump
-    <span class="key">↓</span> duck
-    <span class="key">→</span> dash (hold)
-    <span class="key">←</span> pause toggle
-    <span class="key">R</span> restart
-    <span class="key">Click status</span> cycle unlocked cats
+  <div id="touchControls" class="touchPad" aria-label="Touch controls">
+    <div class="dpad" role="group" aria-label="Directional pad">
+      <button class="tbtn" id="btnUp" aria-label="Jump">↑</button>
+      <button class="tbtn" id="btnLeft" aria-label="Pause">←</button>
+      <button class="tbtn" id="btnRight" aria-label="Dash">→</button>
+      <button class="tbtn" id="btnDown" aria-label="Duck">↓</button>
+    </div>
+    <div class="touchRow">
+      <button class="tbtn wide" id="btnRestart" aria-label="Restart">Restart</button>
+      <button class="tbtn wide" id="btnCats" aria-label="Switch cats">Switch cats</button>
+    </div>
   </div>
   <div class="pill" id="cats">Cats: —</div>
 </div>
@@ -437,7 +502,7 @@ this.el.style.top  = drawY + "px";
 // crop instead of squish
 if(isDuck){
   // hide the top portion, show only the bottom "crouched" slice
-  this.el.style.clipPath = `inset(0px 0px 0px 0px)`;
+  this.el.style.clipPath = `inset(${cropTop}px 0px 0px 0px)`;
 } else {
   this.el.style.clipPath = "inset(0px 0px 0px 0px)";
 }
@@ -817,6 +882,63 @@ document.addEventListener("keyup", (e)=>{
   if(e.code === "ArrowDown"){ player.setDuck(false); }
   if(e.code === "ArrowRight"){ keys.right = false; }
 });
+/* =========================
+   TOUCH CONTROLS (mobile)
+   ========================= */
+(function setupTouchControls(){
+  const up = document.getElementById("btnUp");
+  const down = document.getElementById("btnDown");
+  const left = document.getElementById("btnLeft");
+  const right = document.getElementById("btnRight");
+  const restart = document.getElementById("btnRestart");
+  const catsBtn = document.getElementById("btnCats");
+
+  if(!up || !down || !left || !right) return;
+
+  const hold = (el, onDown, onUp)=>{
+    const stop = (e)=>{ try{ onUp(e); }catch{} };
+    el.addEventListener("pointerdown", (e)=>{
+      e.preventDefault();
+      try{ el.setPointerCapture(e.pointerId); }catch{}
+      try{ onDown(e); }catch{}
+    }, {passive:false});
+    el.addEventListener("pointerup", (e)=>{ e.preventDefault(); stop(e); }, {passive:false});
+    el.addEventListener("pointercancel", stop);
+    el.addEventListener("lostpointercapture", stop);
+    el.addEventListener("pointerleave", (e)=>{ if(e.pressure === 0) stop(e); });
+  };
+
+  // Jump: tap
+  up.addEventListener("pointerdown", (e)=>{
+    e.preventDefault();
+    player.jump();
+  }, {passive:false});
+
+  // Duck: hold
+  hold(down, ()=>player.setDuck(true), ()=>player.setDuck(false));
+
+  // Dash: hold
+  hold(right, ()=>{ keys.right = true; }, ()=>{ keys.right = false; });
+
+  // Pause toggle: tap
+  left.addEventListener("pointerdown", (e)=>{
+    e.preventDefault();
+    player.togglePause();
+    if(player.paused) setStatus("Paused. Tap ← again to resume.");
+    else setStatus(`Run! Target: ${targetScore} — Cat: ${currentSkin.name}`);
+  }, {passive:false});
+
+  // Restart
+  if(restart){
+    restart.addEventListener("pointerdown", (e)=>{ e.preventDefault(); resetRun(); }, {passive:false});
+  }
+
+  // Switch cats (same as clicking status)
+  if(catsBtn){
+    catsBtn.addEventListener("pointerdown", (e)=>{ e.preventDefault(); statusEl.click(); }, {passive:false});
+  }
+})();
+
 
 /* =========================
    RESET PROGRESS (press twice)
