@@ -47,6 +47,8 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     transform: translateZ(0);
+    transform-origin: left bottom;
+    clip-path: inset(0px 0px 0px 0px); /* ALWAYS 0 cropping */
   }
 
   #hud { max-width: 980px; margin: 10px auto 0; padding: 0 16px; display:flex; gap:10px; flex-wrap:wrap; justify-content:space-between; align-items:center; opacity:.95;}
@@ -148,7 +150,6 @@
     .touchPad{ display:none; }
   }
 
-  /* ===== START OVERLAY ===== */
   #startOverlay{
     position:absolute;
     inset:0;
@@ -185,99 +186,42 @@
   @media (max-width: 700px){
     :root{ --hudH: 300px; }
     html, body{ height:100vh; overflow:hidden; }
-    #wrap{
-      padding: 8px;
-      padding-bottom: calc(var(--hudH) + env(safe-area-inset-bottom));
-    }
-    #frame{
-      width: min(980px, 96vw);
-      height: calc(100vh - var(--hudH) - 24px);
-      max-height: none;
-    }
+    #wrap{ padding: 8px; padding-bottom: calc(var(--hudH) + env(safe-area-inset-bottom)); }
+    #frame{ width: min(980px, 96vw); height: calc(100vh - var(--hudH) - 24px); max-height: none; }
     #hud{
-      position: fixed;
-      left: 0; right: 0; bottom: 0;
-      z-index: 5000;
-      pointer-events: auto;
-      max-width: none;
-      margin: 0;
+      position: fixed; left: 0; right: 0; bottom: 0;
+      z-index: 5000; pointer-events: auto;
+      max-width: none; margin: 0;
       padding: 10px 12px calc(14px + env(safe-area-inset-bottom));
-      justify-content: center;
-      gap: 12px;
+      justify-content: center; gap: 12px;
       background: rgba(5,5,10,0.78);
       backdrop-filter: blur(6px);
     }
-    .touchPad{
-      padding: 10px 12px;
-      gap: 10px;
-      border-radius: 22px;
-    }
+    .touchPad{ padding: 10px 12px; gap: 10px; border-radius: 22px; }
     .dpad{
       grid-template-columns: 60px 60px 60px;
       grid-template-rows: 60px 60px 60px;
-      column-gap: 22px;
-      row-gap: 14px;
+      column-gap: 22px; row-gap: 14px;
     }
-    .tbtn{
-      width: 60px;
-      height: 60px;
-      font-size: 22px;
-      border-radius: 16px;
-    }
-    .actionsRow{
-      gap: 14px;
-      margin-top: 6px;
-    }
-    .abtn{
-      min-width: 120px;
-      height: 46px;
-      font-size: 15px;
-      border-radius: 14px;
-    }
-    .pill{
-      width: 100%;
-      max-width: 980px;
-      text-align: center;
-      padding: 10px 14px;
-      border-radius: 20px;
-    }
+    .tbtn{ width: 60px; height: 60px; font-size: 22px; border-radius: 16px; }
+    .actionsRow{ gap: 14px; margin-top: 6px; }
+    .abtn{ min-width: 120px; height: 46px; font-size: 15px; border-radius: 14px; }
+    .pill{ width: 100%; max-width: 980px; text-align: center; padding: 10px 14px; border-radius: 20px; }
   }
 
-  html, body{
-    height:100%;
-    margin:0;
-    overflow:hidden;
-    overscroll-behavior:none;
-  }
+  html, body{ height:100%; margin:0; overflow:hidden; overscroll-behavior:none; }
   body{ --hudH: 230px; }
-  #frame{
-    height: calc(100vh - var(--hudH));
-    max-height: calc(100vh - var(--hudH));
-  }
+  #frame{ height: calc(100vh - var(--hudH)); max-height: calc(100vh - var(--hudH)); }
   #hud{
-    position: fixed;
-    left: 0; right: 0; bottom: 0;
-    max-width: none;
-    margin: 0;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    max-width: none; margin: 0;
     padding: 12px 12px calc(env(safe-area-inset-bottom) + 12px);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    justify-content: center;
-    align-items: center;
-    z-index: 5000;
-    pointer-events: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    justify-content: center; align-items: center;
+    z-index: 5000; pointer-events: auto;
   }
-  #touchControls{
-    width: 100%;
-    display:flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  #cats{
-    width: 100%;
-    max-width: 980px;
-  }
+  #touchControls{ width: 100%; display:flex; flex-direction: column; align-items: center; }
+  #cats{ width: 100%; max-width: 980px; }
   #sprites, canvas{ pointer-events: none; }
   #resetBtn{ pointer-events: auto; z-index: 6000; }
 </style>
@@ -333,41 +277,37 @@ const BASE_CATS = ["Calico","Chromic","Grey","Orange","Tabby"];
 const SECRET_CAT = "Neon";
 const ALL_CATS = [...BASE_CATS, SECRET_CAT];
 
-/* KONAMI (strict state machine)
+/* KONAMI (strict FSM)
    Sequence: ↑ ↑ ↓ ↓ ← → ← → then confirm with Switch cats
 */
-const KONAMI_SEQ = ["up","up","down","down","left","right","left","right"];
+const KONAMI_DIRS = ["up","up","down","down","left","right","left","right"];
 let konamiIndex = 0;
 
 function konamiReset(){ konamiIndex = 0; }
-function konamiAdvance(token){
-  // confirm only matters if sequence finished
+function konamiFeed(token){
+  // confirm step
   if(token === "cats"){
-    if(konamiIndex === KONAMI_SEQ.length){
-      onKonami();
-    }
+    if(konamiIndex === KONAMI_DIRS.length) onKonami();
     konamiReset();
     return;
   }
 
-  // Only directional inputs affect the FSM
+  // only arrow tokens matter; anything else resets
   if(token !== "up" && token !== "down" && token !== "left" && token !== "right"){
-    // ignore anything else (but also reset to be strict)
     konamiReset();
     return;
   }
 
-  // Strict sequential checking
-  const expected = KONAMI_SEQ[konamiIndex];
+  const expected = KONAMI_DIRS[konamiIndex];
   if(token === expected){
     konamiIndex++;
-    return;
+  } else {
+    // strict reset; allow immediate restart if they hit up
+    konamiIndex = (token === "up") ? 1 : 0;
   }
-
-  // If wrong input: reset, but allow immediate restart if they pressed up
-  konamiIndex = (token === "up") ? 1 : 0;
 }
 
+// Obstacles (relative from CatGame folder)
 const OBSTACLE_LIBRARY = [
   { type:"overhead", url:"obstacles/air obstacles/FlyingFish.png",  w: 16, h: 10 },
   { type:"overhead", url:"obstacles/air obstacles/FlyingPizza.gif", w: 16, h: 11 },
@@ -376,6 +316,7 @@ const OBSTACLE_LIBRARY = [
   { type:"ground", url:"obstacles/ground obstacles/DogBark.gif",   w: 18, h: 12 },
 ].map(o => ({ ...o, wpx: Math.round(o.w * SCALE), hpx: Math.round(o.h * SCALE) }));
 
+// Power-up
 const POWERUP_YARN_URL = "power-ups/YarnBall.png";
 const POWERUP_YARN_W = 12;
 const POWERUP_YARN_H = 12;
@@ -396,6 +337,7 @@ const POWERUP_MIDAIR_CHANCE = 0.45;
 const POWERUP_MIDAIR_OFFSET_MIN = 60;
 const POWERUP_MIDAIR_OFFSET_MAX = 130;
 
+// Gameplay
 const BASE_TARGET_SCORE = 20;
 const TARGET_INCREMENT  = 15;
 
@@ -405,14 +347,17 @@ const SPEED_RAMP_PER_SCORE = 19;
 
 const GRAVITY = 2050;
 const JUMP_VELOCITY = 900;
+
 const DUCK_SCALE_Y = 0.62;
 
+// Terrain
 const TERRAIN_BASE_Y = 380 * 0.80;
 const TERRAIN_AMPLITUDE = 10;
 const TERRAIN_WAVELENGTH = 520;
 const TERRAIN_DETAIL = 0.35;
 const TERRAIN_SEGMENT = 18;
 
+// Spawns
 const SPAWN_MIN = 0.85;
 const SPAWN_MAX = 1.45;
 const AIR_CHANCE = 0.35;
@@ -435,7 +380,6 @@ const endlessBtn = document.getElementById("btnEndless");
 let started = false;
 let gameMode = "story"; // "story" | "endless"
 
-/* IMPORTANT: game does NOT run until startGame() */
 function startGame(mode="story"){
   if(started) return;
   started = true;
@@ -447,6 +391,9 @@ function startGame(mode="story"){
 startBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); startGame("story"); }, {passive:false});
 endlessBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); startGame("endless"); }, {passive:false});
 
+/* =========================
+   UTIL
+   ========================= */
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
 function smoothstep(t){ return t*t*(3-2*t); }
@@ -455,6 +402,9 @@ function aabb(ax,ay,aw,ah, bx,by,bw,bh){
   return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
 }
 
+/* =========================
+   PROGRESS
+   ========================= */
 function loadProgress(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -482,7 +432,6 @@ function loadProgress(){
     return { unlocked: 1, selected: 0, wins: 0, neonUnlocked: false };
   }
 }
-
 function saveProgress(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
 
 let progress = loadProgress();
@@ -505,6 +454,12 @@ function ensureSelectedInRange(){
     saveProgress(progress);
   }
 }
+function onKonami(){
+  if(progress.neonUnlocked) return;
+  progress.neonUnlocked = true;
+  saveProgress(progress);
+  updateHUD();
+}
 function cycleCats(){
   const unlocked = getUnlockedCatNames();
   progress.selected = (progress.selected + 1) % unlocked.length;
@@ -513,19 +468,11 @@ function cycleCats(){
   updateHUD();
   if(started) resetRun();
 }
-
-function onKonami(){
-  if(progress.neonUnlocked) return;
-  progress.neonUnlocked = true;
-  saveProgress(progress);
-  updateHUD();
-}
-
 function updateHUD(){
   const unlockedDisp = unlockedCount();
   const totalDisp = totalCats();
   const selectedName = getSelectedName();
-  const modeStr = started ? (gameMode === "endless" ? "Endless" : "Story") : "Not started";
+  const modeStr = started ? (gameMode === "endless" ? "Endless" : "Story") : "Paused";
 
   catsEl.innerHTML =
     `<div class="catsLine1">Cats acquired: ${unlockedDisp}/${totalDisp} | Selected: ${selectedName}</div>` +
@@ -571,10 +518,13 @@ class Terrain {
   }
   heightAtScreenX(sx){ return this.heightAtWorldX(this.scrollX + sx); }
   update(dt, scrollSpeed){ this.scrollX += scrollSpeed * dt; }
-  draw(){
+  draw(isStatic){
+    // NOTE: when not started, render STATIC (no performance.now animation)
     ctx.save();
+
+    // background dots (static or lightly animated)
     ctx.globalAlpha = 0.20;
-    const t = performance.now() * 0.00012;
+    const t = isStatic ? 0 : (performance.now() * 0.00012);
     for(let i=0;i<70;i++){
       const px = (i*97 + (this.scrollX*0.12)) % (W+220) - 110;
       const py = (i*53 + (Math.sin(t+i)*22)) % (H*0.65);
@@ -583,6 +533,7 @@ class Terrain {
     }
     ctx.restore();
 
+    // terrain fill
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, H);
@@ -594,6 +545,7 @@ class Terrain {
     ctx.fillStyle = "rgba(0, 255, 200, 0.06)";
     ctx.fill();
 
+    // outline
     ctx.beginPath();
     for(let x=0; x<=W+TERRAIN_SEGMENT; x+=TERRAIN_SEGMENT){
       const y = this.heightAtScreenX(x);
@@ -603,6 +555,7 @@ class Terrain {
     ctx.lineWidth = 2;
     ctx.stroke();
 
+    // scanlines (static)
     ctx.globalAlpha = 0.08;
     for(let y=0; y<H; y+=6){
       ctx.fillStyle = (y%12===0) ? "#ffffff" : "#000000";
@@ -624,6 +577,8 @@ function makeSprite(url, wpx, hpx){
   img.style.left = "0px";
   img.style.top = "0px";
   img.style.imageRendering = "pixelated";
+  img.style.clipPath = "inset(0px 0px 0px 0px)";
+  img.style.transform = "translateZ(0) scaleY(1)";
   return img;
 }
 
@@ -638,6 +593,8 @@ class CatSkin {
   }
 }
 
+let skinsByName = {};
+let currentSkin = null;
 function getSkinByName(name){
   return skinsByName[name] || skinsByName[BASE_CATS[0]];
 }
@@ -663,10 +620,8 @@ class Player {
     this.el = makeSprite(this.skin.run, this.w, this.h);
     spritesLayer.appendChild(this.el);
 
-    this.applyVisual();
+    this.applyVisual(false);
   }
-
-  destroy(){ this.el?.remove(); }
 
   groundY(){ return this.terrain.heightAtScreenX(this.x) - this.h; }
 
@@ -715,20 +670,28 @@ class Player {
 
     if(this.el.src !== new URL(src, location.href).href) this.el.src = src;
 
+    // NO CROPPING EVER
+    this.el.style.clipPath = "inset(0px 0px 0px 0px)";
+
+    // Duck = squish, anchored to feet (no clipping)
     const isDuck = (st === "duck" && !this.paused);
-    const drawH  = isDuck ? Math.round(this.h * DUCK_SCALE_Y) : this.h;
-    const cropTop = this.h - drawH;
-    const drawY = Math.round(this.y + cropTop);
+    const sY = isDuck ? DUCK_SCALE_Y : 1;
+
+    // to keep feet planted when squishing: move sprite down by (h - h*sY)
+    const gy = this.groundY();
+    const baseTop = Math.round(this.y);
+    const duckShift = Math.round(this.h - (this.h * sY));
+    const top = isDuck ? (baseTop + duckShift) : baseTop;
 
     this.el.style.setProperty("--wpx", this.w + "px");
     this.el.style.setProperty("--hpx", this.h + "px");
     this.el.style.left = Math.round(this.x) + "px";
-    this.el.style.top  = drawY + "px";
-
-    this.el.style.clipPath = isDuck ? `inset(${cropTop}px 0px 0px 0px)` : "inset(0px 0px 0px 0px)";
+    this.el.style.top  = top + "px";
+    this.el.style.transform = `translateZ(0) scaleY(${sY})`;
   }
 
   hitbox(){
+    // hitbox shrinks when ducking
     const duckFactor = this.ducking ? DUCK_SCALE_Y : 1;
     const hbW = this.w * 0.62;
     const hbH = this.h * 0.82 * duckFactor;
@@ -739,7 +702,7 @@ class Player {
 }
 
 /* =========================
-   POWER-UP
+   POWER-UP / OBSTACLE
    ========================= */
 class PowerUp {
   constructor(url, terrain, spawnX){
@@ -797,9 +760,6 @@ class PowerUp {
   }
 }
 
-/* =========================
-   OBSTACLE
-   ========================= */
 class Obstacle {
   constructor(def, terrain, spawnX){
     this.def = def;
@@ -852,10 +812,8 @@ class Obstacle {
    GAME STATE
    ========================= */
 const keys = { right:false };
-let terrain = new Terrain(); // exists even before start (visual only)
-let skinsByName = {};
-let currentSkin = null;
 
+let terrain = new Terrain();
 let player = null;
 let obstacles = [];
 let powerUps = [];
@@ -863,7 +821,7 @@ let powerUps = [];
 let powerTimer = 0;
 let powerNextIn = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
 let spawnTimer = 0;
-let spawnNextIn = rand(SPAWN_MIN, SPAWN_MAX);
+let spawnNextIn = rand(0.85, 1.45);
 
 let score = 0;
 let targetScore = BASE_TARGET_SCORE + progress.wins * TARGET_INCREMENT;
@@ -923,25 +881,7 @@ function drawOverlay(){
 
   if(!started){
     ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.fillText("Waiting for Start… (Konami works now while paused)", 18, 92);
-  }
-
-  if(player?.paused){
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "28px ui-monospace, monospace";
-    ctx.fillText("PAUSED", W/2 - 60, H/2 - 10);
-  }
-
-  if(gameOver){
-    ctx.fillStyle = "rgba(255, 80, 120, 0.95)";
-    ctx.font = "32px ui-monospace, monospace";
-    ctx.fillText("CRASHED", W/2 - 76, H/2 - 10);
-  }
-
-  if(won){
-    ctx.fillStyle = "rgba(120, 255, 200, 0.95)";
-    ctx.font = "32px ui-monospace, monospace";
-    ctx.fillText("YOU WIN", W/2 - 70, H/2 - 10);
+    ctx.fillText("Paused. Enter: ↑↑↓↓←→←→ then Switch cats.", 18, 92);
   }
   ctx.restore();
 }
@@ -952,10 +892,9 @@ function loop(now){
 
   ctx.clearRect(0,0,W,H);
 
-  // Draw terrain even before start (static)
-  terrain.draw();
+  // STATIC background until started (no motion)
+  terrain.draw(!started);
 
-  // HARD PAUSE: do nothing else until started
   if(!started){
     drawOverlay();
     requestAnimationFrame(loop);
@@ -1046,28 +985,31 @@ function loop(now){
 }
 
 /* =========================
-   INPUT (ONLY Konami until started)
+   INPUT
+   - Always feed ONLY Konami first
+   - Gameplay actions ONLY if started
    ========================= */
 function handleToken(token){
-  // Always feed ONLY the Konami FSM
-  konamiAdvance(token);
+  konamiFeed(token);
 
-  // Only after started do we also trigger gameplay actions
   if(!started) return;
 
   if(token === "up") player.jump();
   if(token === "down") player.setDuck(true);
-  if(token === "down_up") player.setDuck(false); // internal helper
+  if(token === "down_up") player.setDuck(false);
+
   if(token === "right") keys.right = true;
-  if(token === "right_up") keys.right = false; // internal helper
+  if(token === "right_up") keys.right = false;
+
   if(token === "left") player.togglePause();
+
   if(token === "restart") resetRun();
+
   if(token === "cats") cycleCats();
 }
 
 document.addEventListener("keydown", (e)=>{
   const code = e.code;
-
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(code)) e.preventDefault();
 
   if(code === "ArrowUp") handleToken("up");
@@ -1083,7 +1025,7 @@ document.addEventListener("keyup", (e)=>{
 }, {passive:false});
 
 /* =========================
-   TOUCH CONTROLS
+   TOUCH
    ========================= */
 (function setupTouchControls(){
   const up = document.getElementById("btnUp");
@@ -1109,17 +1051,8 @@ document.addEventListener("keyup", (e)=>{
   };
 
   up.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("up"); }, {passive:false});
-
-  hold(down,
-    ()=> handleToken("down"),
-    ()=> handleToken("down_up")
-  );
-
-  hold(right,
-    ()=> handleToken("right"),
-    ()=> handleToken("right_up")
-  );
-
+  hold(down, ()=> handleToken("down"), ()=> handleToken("down_up"));
+  hold(right, ()=> handleToken("right"), ()=> handleToken("right_up"));
   left.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("left"); }, {passive:false});
 
   restart?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("restart"); }, {passive:false});
