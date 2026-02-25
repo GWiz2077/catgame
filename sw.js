@@ -1,4 +1,4 @@
-const CACHE = "catgame-v4";
+const CACHE = "catgame-v5";
 
 const ASSETS = [
   "./",
