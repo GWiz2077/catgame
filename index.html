@@ -206,7 +206,6 @@
     #wrap{ padding: 8px; padding-bottom: calc(var(--hudH) + env(safe-area-inset-bottom)); }
     #frame{
       width: min(980px, 96vw);
-      /* rectangle-ish: height based on width */
       height: min(calc(96vw * 0.48), calc(100vh - var(--hudH) - 16px));
       max-height: min(calc(96vw * 0.48), calc(100vh - var(--hudH) - 16px));
     }
@@ -261,7 +260,7 @@
    RESPONSIVE SCALE (smaller on phone)
    ========================= */
 const IS_MOBILE = matchMedia("(max-width: 700px)").matches || matchMedia("(pointer: coarse)").matches;
-const SCALE = IS_MOBILE ? 4 : 6;     // <-- smaller sprites on phone
+const SCALE = IS_MOBILE ? 4 : 6;
 const SPRITE_W = 16, SPRITE_H = 16;
 const CAT_DRAW_W = SPRITE_W * SCALE;
 const CAT_DRAW_H = SPRITE_H * SCALE;
@@ -276,7 +275,7 @@ const BASE_CATS = ["Calico","Chromic","Grey","Orange","Tabby"];
 const SECRET_CAT = "Neon";
 const ALL_CATS = [...BASE_CATS, SECRET_CAT];
 
-/* KONAMI (strict FSM)
+/* KONAMI (strict)
    Sequence: ↑ ↑ ↓ ↓ ← → ← → then confirm with Switch cats
 */
 const KONAMI_DIRS = ["up","up","down","down","left","right","left","right"];
@@ -296,6 +295,7 @@ function konamiFeed(token){
   if(token === expected){
     konamiIndex++;
   } else {
+    // allow restart by pressing up again
     konamiIndex = (token === "up") ? 1 : 0;
   }
 }
@@ -332,8 +332,8 @@ const GRAVITY = 2050;
 const JUMP_VELOCITY = 900;
 
 // Duck logic: NO CROPPING, NO SQUISH. Just move down slightly.
-const DUCK_DROP_PX = Math.max(2, Math.round(CAT_DRAW_H * 0.06)); // tiny shift
-const DUCK_HITBOX_SCALE_Y = 0.62; // hitbox smaller even though sprite stays full size
+const DUCK_DROP_PX = Math.max(2, Math.round(CAT_DRAW_H * 0.06));
+const DUCK_HITBOX_SCALE_Y = 0.62;
 
 // Terrain
 const TERRAIN_BASE_Y = 380 * 0.80;
@@ -379,7 +379,6 @@ function goToStartScreen(){
   won = false;
   score = 0;
 
-  // cleanup sprites + state
   clearSprites();
   obstacles = [];
   powerUps = [];
@@ -389,6 +388,9 @@ function goToStartScreen(){
   konamiReset();
   startOverlay?.classList.remove("hidden");
   updateHUD();
+
+  // IMPORTANT: prevent dt spike after restart
+  lastT = performance.now();
 }
 
 startBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); startGame("story"); }, {passive:false});
@@ -481,7 +483,6 @@ function updateHUD(){
   const totalDisp = totalCats();
   const selectedName = getSelectedName();
   const modeStr = started ? (gameMode === "endless" ? "Endless" : "Story") : "Paused";
-
   const secretText = "Secret: ↑↑↓↓←→←→ then Switch cats";
   const bestText = (gameMode === "endless") ? ` | Best: ${endlessBest}` : "";
 
@@ -675,7 +676,7 @@ class Player {
 
     if(this.el.src !== new URL(src, location.href).href) this.el.src = src;
 
-    // NO CROPPING, NO SQUISH. Only a tiny downward shift when ducking.
+    // NO CROPPING, NO SQUISH.
     this.el.style.clipPath = "inset(0px 0px 0px 0px)";
     this.el.style.transform = "translateZ(0)";
 
@@ -878,6 +879,7 @@ function drawOverlay(){
   }
   ctx.restore();
 }
+
 function loop(now){
   const dt = clamp((now - lastT)/1000, 0, 1/20);
   lastT = now;
@@ -885,6 +887,7 @@ function loop(now){
   ctx.clearRect(0,0,W,H);
   terrain.draw(!started);
 
+  // TRUE PAUSE: no physics/spawns/collisions run until Start/Endless pressed
   if(!started){
     drawOverlay();
     requestAnimationFrame(loop);
@@ -959,7 +962,6 @@ function loop(now){
     }
   }
 
-  // Endless best score tracking
   if(gameMode === "endless" && !frozen && !gameOver && score > endlessBest){
     saveEndlessBest(score);
     updateHUD();
@@ -981,14 +983,25 @@ function loop(now){
 }
 
 /* =========================
-   INPUT
+   INPUT (Konami-safe)
    ========================= */
 function handleToken(token){
-if (token === "cats" || token === "up" || token === "down" || token === "left" || token === "right") {
-  konamiFeed(token);
-}  if(!started) return;
+  // Start screen: ONLY Konami inputs are processed (no gameplay)
+  if(!started){
+    if(token === "cats" || token === "up" || token === "down" || token === "left" || token === "right"){
+      konamiFeed(token);
+      updateHUD();
+    }
+    return;
+  }
+
+  // Gameplay: still allow Konami feed on press tokens
+  if(token === "cats" || token === "up" || token === "down" || token === "left" || token === "right"){
+    konamiFeed(token);
+  }
 
   if(token === "up") player.jump();
+
   if(token === "down") player.setDuck(true);
   if(token === "down_up") player.setDuck(false);
 
@@ -1018,7 +1031,7 @@ document.addEventListener("keyup", (e)=>{
 }, {passive:false});
 
 /* =========================
-   TOUCH
+   TOUCH (debounced holds)
    ========================= */
 (function setupTouchControls(){
   const up = document.getElementById("btnUp");
@@ -1030,23 +1043,37 @@ document.addEventListener("keyup", (e)=>{
 
   if(!up || !down || !left || !right) return;
 
+  // Debounced hold: prevents duplicate down/right events on mobile
   const hold = (el, onDown, onUp)=>{
-    const stop = (e)=>{ try{ onUp(e); }catch{} };
+    let active = false;
+
+    const stop = (e)=>{
+      if(!active) return;
+      active = false;
+      try{ onUp(e); }catch{}
+    };
+
     el.addEventListener("pointerdown", (e)=>{
       e.preventDefault();
+      if(active) return; // IMPORTANT: ignore double pointerdown
+      active = true;
+
       try{ el.setPointerCapture(e.pointerId); }catch{}
       try{ onDown(e); }catch{}
     }, {passive:false});
+
     el.addEventListener("pointerup", (e)=>{ e.preventDefault(); stop(e); }, {passive:false});
     el.addEventListener("pointercancel", stop);
     el.addEventListener("lostpointercapture", stop);
-    el.addEventListener("pointerleave", (e)=>{ if(e.pressure === 0) stop(e); });
+
+    el.addEventListener("pointerleave", (e)=>{ if(e.buttons === 0) stop(e); });
   };
 
   up.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("up"); }, {passive:false});
+  left.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("left"); }, {passive:false});
+
   hold(down, ()=> handleToken("down"), ()=> handleToken("down_up"));
   hold(right, ()=> handleToken("right"), ()=> handleToken("right_up"));
-  left.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("left"); }, {passive:false});
 
   restart?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("restart"); }, {passive:false});
   catsBtn?.addEventListener("pointerdown", (e)=>{ e.preventDefault(); handleToken("cats"); }, {passive:false});
