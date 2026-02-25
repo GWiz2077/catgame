@@ -54,6 +54,10 @@
 
   #hud { max-width: 980px; margin: 10px auto 0; padding: 0 16px; display:flex; gap:10px; flex-wrap:wrap; justify-content:space-between; align-items:center; opacity:.95;}
   .pill { padding:8px 10px; border-radius:999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); }
+  #cats{ text-align:center; padding:14px 16px; }
+  .catsLine1, .catsLine2{ text-align:center; width:100%; }
+  .catsLine1{ font-size:18px; }
+  .catsLine2{ font-size:18px; margin-top:6px; }
   .muted { opacity: .8; }
   .key { padding:2px 6px; border-radius:8px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.14); }
 #resetBtn{
@@ -61,20 +65,20 @@
   .touchPad{
     flex: 1 1 100%;
     width: 100%;
-    padding: 14px;
+    padding: 22px 18px;
     border-radius: 999px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.10);
     display: grid;
-    gap: 12px;
+    gap: 18px;
   }
   .dpad{
     display: grid;
-    grid-template-columns: 72px 72px 72px;
-    grid-template-rows: 72px 72px 72px;
+    grid-template-columns: 110px 110px 110px;
+    grid-template-rows: 110px 110px 110px;
     justify-content: center;
     align-content: center;
-    gap: 10px;
+    gap: 26px;
   }
   /* Place buttons in diamond */
   #btnUp{ grid-column: 2; grid-row: 1; }
@@ -84,10 +88,10 @@
 
   .tbtn{
     -webkit-tap-highlight-color: transparent;
-    touch-action: none;
+    touch-action: manipulation;
     user-select: none;
-    width: 72px;
-    height: 72px;
+    width: 90px;
+    height: 90px;
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.18);
     background: rgba(255,255,255,0.10);
@@ -150,7 +154,6 @@
 </div>
 
 <div id="hud">
-  <div class="pill" id="status">Loading…</div>
   <div id="touchControls" class="touchPad" aria-label="Touch controls">
     <div class="dpad" role="group" aria-label="Directional pad">
       <button class="tbtn" id="btnUp" aria-label="Jump">↑</button>
@@ -180,7 +183,14 @@ const CAT_DRAW_H = SPRITE_H * SCALE;   // 96px
 
 const STORAGE_KEY = "cat_runner_dom_progress_v1";
 
-const CAT_NAMES_IN_ORDER = ["Calico","Chromic","Grey","Neon","Orange","Tabby"];
+const BASE_CATS = ["Calico","Chromic","Grey","Orange","Tabby"];
+const SECRET_CAT = "Neon";
+const ALL_CATS = [...BASE_CATS, SECRET_CAT];
+
+// Secret unlock: ↑ ↓ ↑ ↓ ← → ← → then press "Switch cats"
+const SECRET_SEQ = ["up","down","up","down","left","right","left","right","cats"];
+const secretBuffer = [];
+
 
 // Obstacles (relative from CatGame folder)
 const OBSTACLE_LIBRARY = [
@@ -261,10 +271,9 @@ ctx.imageSmoothingEnabled = false;
 
 const W = canvas.width, H = canvas.height;
 const spritesLayer = document.getElementById("sprites");
-const statusEl = document.getElementById("status");
 const catsEl = document.getElementById("cats");
 
-function setStatus(s){ statusEl.textContent = s; }
+function setStatus(_s){}
 
 /* =========================
    UTIL
@@ -280,17 +289,87 @@ function aabb(ax,ay,aw,ah, bx,by,bw,bh){
 function loadProgress(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return { unlocked: 1, selected: 0, wins: 0 };
+    if(!raw) return { unlocked: 1, selected: 0, wins: 0, neonUnlocked: false };
+
     const d = JSON.parse(raw);
+
+    // Back-compat: older saves used CAT_NAMES_IN_ORDER (6) including Neon.
+    const oldOrder = ["Calico","Chromic","Grey","Neon","Orange","Tabby"];
+
+    const neonUnlocked = Boolean(d.neonUnlocked ?? false);
+
+    // Map selected by name so we can safely exclude Neon unless unlocked via code
+    const oldSelectedIdx = clamp(Number(d.selected ?? 0), 0, oldOrder.length-1);
+    let selectedName = oldOrder[oldSelectedIdx] || "Calico";
+    if(!neonUnlocked && selectedName === "Neon") selectedName = "Calico";
+
+    // Compute base unlocked count (excluding Neon unless neonUnlocked)
+    const oldUnlocked = clamp(Number(d.unlocked ?? 1), 1, oldOrder.length);
+    const baseUnlocked = Math.max(1, Math.min(BASE_CATS.length,
+      oldOrder.slice(0, oldUnlocked).filter(n => n !== "Neon").length
+    ));
+
+    const unlockedNames = getUnlockedCatNames({unlocked: baseUnlocked, neonUnlocked});
+    let selected = unlockedNames.indexOf(selectedName);
+    if(selected < 0) selected = 0;
+
     return {
-      unlocked: clamp(Number(d.unlocked ?? 1), 1, CAT_NAMES_IN_ORDER.length),
-      selected: clamp(Number(d.selected ?? 0), 0, CAT_NAMES_IN_ORDER.length-1),
-      wins: Math.max(0, Number(d.wins ?? 0))
+      unlocked: baseUnlocked,
+      selected,
+      wins: Math.max(0, Number(d.wins ?? 0)),
+      neonUnlocked
     };
   } catch {
-    return { unlocked: 1, selected: 0, wins: 0 };
+    return { unlocked: 1, selected: 0, wins: 0, neonUnlocked: false };
   }
 }
+
+function totalCats(){ return BASE_CATS.length + (progress.neonUnlocked ? 1 : 0); }
+function unlockedCount(){ return progress.unlocked + (progress.neonUnlocked ? 1 : 0); }
+function getUnlockedCatNames(p=progress){
+  const out = BASE_CATS.slice(0, clamp(p.unlocked, 1, BASE_CATS.length));
+  if(p.neonUnlocked) out.push(SECRET_CAT);
+  return out;
+}
+function getSelectedName(){
+  const unlocked = getUnlockedCatNames();
+  return unlocked[clamp(progress.selected, 0, unlocked.length-1)] || unlocked[0] || BASE_CATS[0];
+}
+function getSkinByName(name){
+  return skinsByName[name] || skinsByName[BASE_CATS[0]];
+}
+function ensureSelectedInRange(){
+  const unlocked = getUnlockedCatNames();
+  if(progress.selected > unlocked.length-1){
+    progress.selected = unlocked.length-1;
+    saveProgress(progress);
+  }
+}
+function cycleCats(){
+  const unlocked = getUnlockedCatNames();
+  progress.selected = (progress.selected + 1) % unlocked.length;
+  saveProgress(progress);
+  currentSkin = getSkinByName(getSelectedName());
+  updateHUD();
+  resetRun();
+}
+function markInput(token){
+  secretBuffer.push(token);
+  if(secretBuffer.length > SECRET_SEQ.length) secretBuffer.shift();
+  if(secretBuffer.length < SECRET_SEQ.length) return;
+
+  for(let i=0;i<SECRET_SEQ.length;i++){
+    if(secretBuffer[i] !== SECRET_SEQ[i]) return;
+  }
+  // matched!
+  if(!progress.neonUnlocked){
+    progress.neonUnlocked = true;
+    // Immediately counts as an extra unlocked cat, as requested.
+    saveProgress(progress);
+    updateHUD();
+  }
+}
+
 function saveProgress(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
 
 /* =========================
@@ -413,7 +492,7 @@ class Player {
     this.terrain = terrain;
     this.skin = skin;
 
-    this.x = 150;
+    this.x = 80;
     this.w = CAT_DRAW_W;
     this.h = CAT_DRAW_H;
 
@@ -643,7 +722,7 @@ const keys = { right:false };
 let progress = loadProgress();
 
 let terrain = null;
-let skins = [];
+let skinsByName = {};
 let currentSkin = null;
 
 let player = null;
@@ -663,9 +742,15 @@ let won = false;
 let lastT = performance.now();
 
 function updateHUD(){
-  const selectedName = CAT_NAMES_IN_ORDER[progress.selected] ?? "Unknown";
-  catsEl.textContent = `Unlocked: ${progress.unlocked}/${CAT_NAMES_IN_ORDER.length} | Selected: ${selectedName} | Wins: ${progress.wins}`;
+  const unlockedDisp = unlockedCount();
+  const totalDisp = totalCats();
+  const selectedName = getSelectedName();
+
+  catsEl.innerHTML =
+    `<div class="catsLine1">Unlocked: ${unlockedDisp}/${totalDisp} | Selected: ${selectedName}</div>` +
+    `<div class="catsLine2">Wins: ${progress.wins}</div>`;
 }
+
 
 function currentScrollSpeed(){
   const base = BASE_SCROLL_SPEED + score * SPEED_RAMP_PER_SCORE;
@@ -844,15 +929,12 @@ for(let i=powerUps.length-1; i>=0; i--){
   if(!frozen && !gameOver && !won && score >= targetScore){
     won = true;
 
-    if(progress.unlocked < CAT_NAMES_IN_ORDER.length){
+    if(progress.unlocked < BASE_CATS.length){
       progress.unlocked += 1;
     }
     progress.wins += 1;
     saveProgress(progress);
     updateHUD();
-
-    const unlockedName = CAT_NAMES_IN_ORDER[progress.unlocked-1];
-    setStatus(unlockedName ? `WIN! Unlocked: ${unlockedName}. Press R.` : `WIN! Press R.`);
   }
 
   // update player sprite (DOM)
@@ -867,15 +949,11 @@ for(let i=powerUps.length-1; i>=0; i--){
    INPUT
    ========================= */
 document.addEventListener("keydown", (e)=>{
-  if(e.code === "ArrowUp"){ player.jump(); e.preventDefault(); }
-  if(e.code === "ArrowDown"){ player.setDuck(true); e.preventDefault(); }
-  if(e.code === "ArrowRight"){ keys.right = true; e.preventDefault(); }
-  if(e.code === "ArrowLeft"){
-    player.togglePause();
-    if(player.paused) setStatus("Paused. Press ← again to resume.");
-    else setStatus(`Run! Target: ${targetScore} — Cat: ${currentSkin.name}`);
-    e.preventDefault();
-  }
+  if(e.code === "ArrowUp"){ markInput("up"); markInput("up");
+    player.jump(); e.preventDefault(); }
+  if(e.code === "ArrowDown"){ markInput("down"); player.setDuck(true); e.preventDefault(); }
+  if(e.code === "ArrowRight"){ markInput("right"); keys.right = true; e.preventDefault(); }
+  if(e.code === "ArrowLeft"){ markInput("left"); player.togglePause(); e.preventDefault(); }
   if(e.code === "KeyR"){ resetRun(); e.preventDefault(); }
 });
 document.addEventListener("keyup", (e)=>{
@@ -915,17 +993,16 @@ document.addEventListener("keyup", (e)=>{
   }, {passive:false});
 
   // Duck: hold
-  hold(down, ()=>player.setDuck(true), ()=>player.setDuck(false));
+  hold(down, ()=>{ markInput("down"); player.setDuck(true); }, ()=>player.setDuck(false));
 
   // Dash: hold
-  hold(right, ()=>{ keys.right = true; }, ()=>{ keys.right = false; });
+  hold(right, ()=>{ markInput("right"); keys.right = true; }, ()=>{ keys.right = false; });
 
   // Pause toggle: tap
   left.addEventListener("pointerdown", (e)=>{
     e.preventDefault();
+    markInput("left");
     player.togglePause();
-    if(player.paused) setStatus("Paused. Tap ← again to resume.");
-    else setStatus(`Run! Target: ${targetScore} — Cat: ${currentSkin.name}`);
   }, {passive:false});
 
   // Restart
@@ -935,7 +1012,7 @@ document.addEventListener("keyup", (e)=>{
 
   // Switch cats (same as clicking status)
   if(catsBtn){
-    catsBtn.addEventListener("pointerdown", (e)=>{ e.preventDefault(); statusEl.click(); }, {passive:false});
+    catsBtn.addEventListener("pointerdown", (e)=>{ e.preventDefault(); markInput("cats"); cycleCats(); }, {passive:false});
   }
 })();
 
@@ -968,30 +1045,16 @@ resetBtn.addEventListener("click", ()=>{
 /* =========================
    CAT CYCLING
    ========================= */
-statusEl.style.cursor = "pointer";
-statusEl.title = "Click to cycle unlocked cats";
-statusEl.addEventListener("click", ()=>{
-  const max = progress.unlocked - 1;
-  progress.selected = (progress.selected + 1) % (max + 1);
-  saveProgress(progress);
-
-  currentSkin = skins[progress.selected] || skins[0];
-  updateHUD();
-  resetRun();
-});
 
 /* =========================
    INIT
    ========================= */
 async function init(){
-  if(progress.selected > progress.unlocked - 1){
-    progress.selected = progress.unlocked - 1;
-    saveProgress(progress);
-  }
+  ensureSelectedInRange();
   updateHUD();
 
-  skins = CAT_NAMES_IN_ORDER.map(n => new CatSkin(n));
-  currentSkin = skins[progress.selected];
+  skinsByName = Object.fromEntries(ALL_CATS.map(n => [n, new CatSkin(n)]));
+  currentSkin = getSkinByName(getSelectedName());
 
   resetRun();
   requestAnimationFrame(loop);
