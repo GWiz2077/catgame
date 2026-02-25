@@ -984,8 +984,9 @@ function loop(now){
    INPUT
    ========================= */
 function handleToken(token){
+if (token === "cats" || token === "up" || token === "down" || token === "left" || token === "right") {
   konamiFeed(token);
-  if(!started) return;
+}  if(!started) return;
 
   if(token === "up") player.jump();
   if(token === "down") player.setDuck(true);
