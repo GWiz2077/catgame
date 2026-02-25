@@ -1,0 +1,885 @@
+<!-- Happy Birthday, Alex! I hope you enjoy your present <3 Gavin -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+
+<!-- iOS “install to home screen” hints -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CatGame">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta charset="UTF-8" />
+<title>Cat Runner (DOM Sprites + Pixel Perfect)</title>
+<style>
+  html, body { margin:0; padding:0; background:#05050a; color:#fff; font-family: ui-monospace, Consolas, monospace; }
+  #wrap { display:flex; justify-content:center; padding:14px; }
+
+
+  /* Game frame */
+  #frame{
+    position: relative;
+    width: 980px;
+    height: 380px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.6);
+    overflow: hidden;
+    background: radial-gradient(1200px 420px at 30% 20%, #141a44 0%, #070714 55%, #04040a 100%);
+  }
+
+  canvas{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* DOM sprites layer above canvas */
+  #sprites{
+    position:absolute; inset:0;
+    pointer-events:none;
+  }
+
+  .sprite{
+    position:absolute;
+    width: var(--wpx);
+    height: var(--hpx);
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    transform: translateZ(0);
+  }
+
+  #hud { max-width: 980px; margin: 10px auto 0; padding: 0 16px; display:flex; gap:10px; flex-wrap:wrap; justify-content:space-between; align-items:center; opacity:.95;}
+  .pill { padding:8px 10px; border-radius:999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); }
+  .muted { opacity: .8; }
+  .key { padding:2px 6px; border-radius:8px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.14); }
+#resetBtn{
+  position:absolute;
+  top:10px; right:10px;
+  z-index: 5;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.18);
+  background: rgba(10,10,20,0.55);
+  color:#fff;
+  font-family: ui-monospace, Consolas, monospace;
+  cursor:pointer;
+  pointer-events:auto;
+}
+#resetBtn.armed{
+  border-color: rgba(255,120,160,0.55);
+  background: rgba(80,10,30,0.55);
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="frame">
+    <canvas id="bg" width="980" height="380"></canvas>
+
+    <button id="resetBtn" title="Press twice to confirm">Reset</button>
+
+    <div id="sprites"></div>
+  </div>
+</div>
+
+<div id="hud">
+  <div class="pill" id="status">Loading…</div>
+  <div class="pill muted">
+    Controls:
+    <span class="key">↑</span> jump
+    <span class="key">↓</span> duck
+    <span class="key">→</span> dash (hold)
+    <span class="key">←</span> pause toggle
+    <span class="key">R</span> restart
+    <span class="key">Click status</span> cycle unlocked cats
+  </div>
+  <div class="pill" id="cats">Cats: —</div>
+</div>
+
+<script>
+/* =========================
+   CONFIG
+   ========================= */
+
+// Pixel art base size + integer scaling
+const SPRITE_W = 16;
+const SPRITE_H = 16;
+const SCALE = 6;                 // try 5, 6, 7
+const CAT_DRAW_W = SPRITE_W * SCALE;   // 96px
+const CAT_DRAW_H = SPRITE_H * SCALE;   // 96px
+
+const STORAGE_KEY = "cat_runner_dom_progress_v1";
+
+const CAT_NAMES_IN_ORDER = ["Calico","Chromic","Grey","Neon","Orange","Tabby"];
+
+// Obstacles (relative from CatGame folder)
+const OBSTACLE_LIBRARY = [
+  { type:"overhead", url:"obstacles/air obstacles/FlyingFish.png",  w: 16, h: 10 },
+  { type:"overhead", url:"obstacles/air obstacles/FlyingPizza.gif", w: 16, h: 11 },
+
+  { type:"ground", url:"obstacles/ground obstacles/CatTower1.png", w: 14, h: 18 },
+  { type:"ground", url:"obstacles/ground obstacles/CatTower2.png", w: 14, h: 18 },
+  { type:"ground", url:"obstacles/ground obstacles/DogBark.gif",   w: 18, h: 12 },
+].map(o => ({
+  ...o,
+  // convert sprite-ish size to px with integer scale
+  wpx: Math.round(o.w * SCALE),
+  hpx: Math.round(o.h * SCALE),
+}));
+
+// Power-up: Yarn Ball
+const POWERUP_YARN_URL = "power-ups/YarnBall.png";
+
+// Size in sprite units (scaled by SCALE)
+const POWERUP_YARN_W = 12;
+const POWERUP_YARN_H = 12;
+
+const POWERUP_SCORE_BONUS = 5;
+
+// Spawning (seconds)
+const POWERUP_SPAWN_MIN = 4.5;
+const POWERUP_SPAWN_MAX = 8.5;
+const POWERUP_MAX_ACTIVE = 1;
+
+// Movement: faster than map
+const POWERUP_SPEED_MULT = 1.35;
+
+// Bounce feel (px)
+const POWERUP_BOUNCE_AMP_MIN = 10;
+const POWERUP_BOUNCE_AMP_MAX = 22;
+const POWERUP_BOUNCE_FREQ_MIN = 5.0;
+const POWERUP_BOUNCE_FREQ_MAX = 9.0;
+const POWERUP_BOUNCE_DECAY = 0.20; // amplitude decay per second
+
+// Spawn height: sometimes mid-air
+const POWERUP_MIDAIR_CHANCE = 0.45;
+const POWERUP_MIDAIR_OFFSET_MIN = 60; // px above ground
+const POWERUP_MIDAIR_OFFSET_MAX = 130;
+
+// Gameplay
+const BASE_TARGET_SCORE = 20;
+const TARGET_INCREMENT  = 15;
+
+const BASE_SCROLL_SPEED = 400;  // px/sec
+const BOOST_MULTIPLIER  = 2;
+const SPEED_RAMP_PER_SCORE = 19;
+
+const GRAVITY = 2050;
+const JUMP_VELOCITY = 900;
+
+// duck uses jump anim, but shrink hitbox & render height
+const DUCK_SCALE_Y = 0.62;
+
+// Terrain
+const TERRAIN_BASE_Y = 380 * 0.80;
+const TERRAIN_AMPLITUDE = 10;
+const TERRAIN_WAVELENGTH = 520;
+const TERRAIN_DETAIL = 0.35;
+const TERRAIN_SEGMENT = 18;
+
+// Spawns
+const SPAWN_MIN = 0.85;
+const SPAWN_MAX = 1.45;
+const AIR_CHANCE = 0.35;
+
+/* =========================
+   DOM + CANVAS
+   ========================= */
+const canvas = document.getElementById("bg");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+const W = canvas.width, H = canvas.height;
+const spritesLayer = document.getElementById("sprites");
+const statusEl = document.getElementById("status");
+const catsEl = document.getElementById("cats");
+
+function setStatus(s){ statusEl.textContent = s; }
+
+/* =========================
+   UTIL
+   ========================= */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+function smoothstep(t){ return t*t*(3-2*t); }
+function rand(a,b){ return a + Math.random()*(b-a); }
+function aabb(ax,ay,aw,ah, bx,by,bw,bh){
+  return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+}
+
+function loadProgress(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return { unlocked: 1, selected: 0, wins: 0 };
+    const d = JSON.parse(raw);
+    return {
+      unlocked: clamp(Number(d.unlocked ?? 1), 1, CAT_NAMES_IN_ORDER.length),
+      selected: clamp(Number(d.selected ?? 0), 0, CAT_NAMES_IN_ORDER.length-1),
+      wins: Math.max(0, Number(d.wins ?? 0))
+    };
+  } catch {
+    return { unlocked: 1, selected: 0, wins: 0 };
+  }
+}
+function saveProgress(p){ localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); }
+
+/* =========================
+   1D NOISE
+   ========================= */
+class Noise1D {
+  constructor(seed=1337){ this.seed = seed>>>0; this.cache = new Map(); }
+  hash(x){
+    let n = (x * 374761393 + this.seed * 668265263) >>> 0;
+    n = (n ^ (n >>> 13)) >>> 0;
+    n = (n * 1274126177) >>> 0;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+  value(xi){
+    if(this.cache.has(xi)) return this.cache.get(xi);
+    const v = this.hash(xi);
+    if(this.cache.size > 8000) this.cache.clear();
+    this.cache.set(xi, v);
+    return v;
+  }
+  sample(x){
+    const x0 = Math.floor(x), x1 = x0+1;
+    const t = smoothstep(x - x0);
+    return lerp(this.value(x0), this.value(x1), t);
+  }
+}
+const noise = new Noise1D((Date.now() & 0xffffffff) ^ 0xC0FFEE);
+
+/* =========================
+   TERRAIN
+   ========================= */
+class Terrain {
+  constructor(){ this.scrollX = 0; }
+  heightAtWorldX(wx){
+    const large = (noise.sample(wx / TERRAIN_WAVELENGTH) - 0.5) * 2;
+    const small = (noise.sample(wx / (TERRAIN_WAVELENGTH * 0.35)) - 0.5) * 2;
+    const mix = large * (1 - TERRAIN_DETAIL) + small * TERRAIN_DETAIL;
+    return TERRAIN_BASE_Y - mix * TERRAIN_AMPLITUDE;
+  }
+  heightAtScreenX(sx){ return this.heightAtWorldX(this.scrollX + sx); }
+  update(dt, scrollSpeed){ this.scrollX += scrollSpeed * dt; }
+  draw(){
+    // background parallax dots
+    ctx.save();
+    ctx.globalAlpha = 0.20;
+    const t = performance.now() * 0.00012;
+    for(let i=0;i<70;i++){
+      const px = (i*97 + (this.scrollX*0.12)) % (W+220) - 110;
+      const py = (i*53 + (Math.sin(t+i)*22)) % (H*0.65);
+      ctx.fillStyle = "rgba(120,255,220,0.35)";
+      ctx.fillRect(px|0, py|0, 2, 2);
+    }
+    ctx.restore();
+
+    // terrain fill
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for(let x=0; x<=W+TERRAIN_SEGMENT; x+=TERRAIN_SEGMENT){
+      ctx.lineTo(x, this.heightAtScreenX(x));
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(0, 255, 200, 0.06)";
+    ctx.fill();
+
+    // outline
+    ctx.beginPath();
+    for(let x=0; x<=W+TERRAIN_SEGMENT; x+=TERRAIN_SEGMENT){
+      const y = this.heightAtScreenX(x);
+      if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle = "rgba(0, 255, 220, 0.35)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // scanlines
+    ctx.globalAlpha = 0.08;
+    for(let y=0; y<H; y+=6){
+      ctx.fillStyle = (y%12===0) ? "#ffffff" : "#000000";
+      ctx.fillRect(0,y,W,1);
+    }
+    ctx.restore();
+  }
+}
+
+/* =========================
+   DOM SPRITES
+   ========================= */
+function makeSprite(url, wpx, hpx){
+  const img = document.createElement("img");
+  img.className = "sprite";
+  img.src = url;
+  img.style.setProperty("--wpx", wpx + "px");
+  img.style.setProperty("--hpx", hpx + "px");
+  img.style.left = "0px";
+  img.style.top = "0px";
+  // pixelated for the img itself
+  img.style.imageRendering = "pixelated";
+  return img;
+}
+
+class CatSkin {
+  constructor(name){
+    const base = `Cats/${name}/${name}`;
+    this.name = name;
+    this.run  = `${base}Run.gif`;
+    this.idle = `${base}Idle.gif`;
+    this.jump = `${base}Jump.png`;
+    // optional: if you ever add Dash.gif later, swap in here.
+    this.dash = `${base}Run.gif`;
+  }
+}
+
+/* =========================
+   PLAYER
+   ========================= */
+class Player {
+  constructor(terrain, skin){
+    this.terrain = terrain;
+    this.skin = skin;
+
+    this.x = 150;
+    this.w = CAT_DRAW_W;
+    this.h = CAT_DRAW_H;
+
+    this.y = 0;
+    this.vy = 0;
+
+    this.ducking = false;
+    this.paused = false;
+
+    // DOM element
+    this.el = makeSprite(this.skin.run, this.w, this.h);
+    spritesLayer.appendChild(this.el);
+
+    this.applyVisual(); // sets initial
+  }
+
+  destroy(){
+    this.el?.remove();
+  }
+
+  groundY(){
+    return this.terrain.heightAtScreenX(this.x) - this.h;
+  }
+
+  jump(){
+    if(this.paused) return;
+    const gy = this.groundY();
+    if(this.y >= gy - 2){
+      this.vy = -JUMP_VELOCITY;
+    }
+  }
+
+  setDuck(d){
+    if(this.paused) return;
+    this.ducking = d;
+  }
+
+  togglePause(){ this.paused = !this.paused; }
+
+  update(dt){
+    const gy = this.groundY();
+    if(!this.paused){
+      this.vy += GRAVITY * dt;
+      this.y += this.vy * dt;
+    }
+    if(this.y > gy){
+      this.y = gy;
+      this.vy = 0;
+    }
+  }
+
+  state(isDashing){
+    const gy = this.groundY();
+    if(this.paused) return "pause";
+    if(this.y < gy - 1) return "jump";
+    if(this.ducking) return "duck";
+    if(isDashing) return "dash";
+    return "run";
+  }
+
+  applyVisual(isDashing=false){
+    const st = this.state(isDashing);
+
+    // pick sprite source
+    let src = this.skin.run;
+    if(st === "pause") src = this.skin.idle;
+    else if(st === "jump") src = this.skin.jump;
+    else if(st === "duck") src = this.skin.jump;
+    else if(st === "dash") src = this.skin.dash;
+
+    if(this.el.src !== new URL(src, location.href).href){
+      this.el.src = src;
+    }
+
+   // duck: DON'T scale/squish the image — just crop from the top and shift down
+const isDuck = (st === "duck" && !this.paused);
+const drawH  = isDuck ? Math.round(this.h * DUCK_SCALE_Y) : this.h;
+const cropTop = this.h - drawH;                 // how much to hide from the top
+const drawY = Math.round(this.y + cropTop);     // shift down so feet stay planted
+
+this.el.style.setProperty("--wpx", this.w + "px");
+this.el.style.setProperty("--hpx", this.h + "px"); // keep full height so no compression
+this.el.style.left = Math.round(this.x) + "px";
+this.el.style.top  = drawY + "px";
+
+// crop instead of squish
+if(isDuck){
+  // hide the top portion, show only the bottom "crouched" slice
+  this.el.style.clipPath = `inset(0px 0px 0px 0px)`;
+} else {
+  this.el.style.clipPath = "inset(0px 0px 0px 0px)";
+}
+  }
+
+  hitbox(){
+    const duckFactor = this.ducking ? DUCK_SCALE_Y : 1;
+    const hbW = this.w * 0.62;
+    const hbH = this.h * 0.82 * duckFactor;
+    const hbX = this.x + this.w * 0.18;
+    const hbY = (this.y + this.h) - hbH;
+    return { x:hbX, y:hbY, w:hbW, h:hbH };
+  }
+}
+
+/* =========================
+   OBSTACLE (DOM sprite)
+   ========================= */
+/* =========================
+   POWER-UP (DOM sprite)
+   ========================= */
+class PowerUp {
+  constructor(url, terrain, spawnX){
+    this.terrain = terrain;
+    this.x = spawnX;
+
+    this.w = Math.round(POWERUP_YARN_W * SCALE);
+    this.h = Math.round(POWERUP_YARN_H * SCALE);
+
+    this.el = makeSprite(url, this.w, this.h);
+    spritesLayer.appendChild(this.el);
+
+    // motion + bounce params
+    this.t = 0;
+    this.phase = rand(0, Math.PI * 2);
+    this.amp0 = rand(POWERUP_BOUNCE_AMP_MIN, POWERUP_BOUNCE_AMP_MAX);
+    this.freq = rand(POWERUP_BOUNCE_FREQ_MIN, POWERUP_BOUNCE_FREQ_MAX);
+
+    // spawn height mode
+    this.midair = Math.random() < POWERUP_MIDAIR_CHANCE;
+    this.midairOffset = this.midair
+      ? rand(POWERUP_MIDAIR_OFFSET_MIN, POWERUP_MIDAIR_OFFSET_MAX)
+      : rand(10, 22);
+
+    this.recalcY();
+    this.applyPos();
+  }
+
+  destroy(){ this.el?.remove(); }
+
+  recalcY(){
+    const gy = this.terrain.heightAtScreenX(this.x);
+
+    // base height: near ground OR mid-air
+    const base = gy - this.h - this.midairOffset;
+
+    // diminishing + slightly random bounce
+    const amp = Math.max(6, this.amp0 * Math.exp(-POWERUP_BOUNCE_DECAY * this.t));
+    const jitter = Math.sin((this.t * 1.3) + this.phase) * 2.0; // subtle randomness
+    const bob = Math.sin((this.t * this.freq) + this.phase) * amp;
+
+    this.y = base - bob + jitter;
+  }
+
+  applyPos(){
+    this.el.style.left = Math.round(this.x) + "px";
+    this.el.style.top  = Math.round(this.y) + "px";
+  }
+
+  update(dt, scrollSpeed){
+    this.t += dt;
+    this.x -= (scrollSpeed * POWERUP_SPEED_MULT) * dt;
+    this.recalcY();
+    this.applyPos();
+  }
+
+  offscreen(){ return this.x + this.w < -120; }
+
+  hitbox(){
+    const pad = 3;
+    return { x:this.x+pad, y:this.y+pad, w:this.w-pad*2, h:this.h-pad*2 };
+  }
+}
+
+class Obstacle {
+  constructor(def, terrain, spawnX){
+    this.def = def;
+    this.terrain = terrain;
+    this.x = spawnX;
+    this.type = def.type;
+    this.w = def.wpx;
+    this.h = def.hpx;
+    this.passed = false;
+
+    this.el = makeSprite(def.url, this.w, this.h);
+    spritesLayer.appendChild(this.el);
+
+    this.recalcY();
+    this.applyPos();
+  }
+
+  destroy(){ this.el?.remove(); }
+
+  recalcY(){
+    const gy = this.terrain.heightAtScreenX(this.x);
+    if(this.type === "ground"){
+      this.y = gy - this.h;
+    } else {
+      // overhead: a consistent clearance so ducking matters
+      const clearance = 50 * (SCALE/6); // scale-aware
+      this.y = gy - clearance - this.h;
+    }
+  }
+
+  applyPos(){
+    this.el.style.left = Math.round(this.x) + "px";
+    this.el.style.top  = Math.round(this.y) + "px";
+  }
+
+  update(dt, scrollSpeed){
+    this.x -= scrollSpeed * dt;
+    this.recalcY();
+    this.applyPos();
+  }
+
+  offscreen(){ return this.x + this.w < -120; }
+
+  hitbox(){
+    const pad = 6;
+    return { x:this.x+pad, y:this.y+pad, w:this.w-pad*2, h:this.h-pad*2 };
+  }
+}
+
+/* =========================
+   GAME STATE
+   ========================= */
+const keys = { right:false };
+let progress = loadProgress();
+
+let terrain = null;
+let skins = [];
+let currentSkin = null;
+
+let player = null;
+let obstacles = [];
+
+let powerUps = [];
+let powerTimer = 0;
+let powerNextIn = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
+let spawnTimer = 0;
+let spawnNextIn = rand(SPAWN_MIN, SPAWN_MAX);
+
+let score = 0;
+let targetScore = BASE_TARGET_SCORE + progress.wins * TARGET_INCREMENT;
+let gameOver = false;
+let won = false;
+
+let lastT = performance.now();
+
+function updateHUD(){
+  const selectedName = CAT_NAMES_IN_ORDER[progress.selected] ?? "Unknown";
+  catsEl.textContent = `Unlocked: ${progress.unlocked}/${CAT_NAMES_IN_ORDER.length} | Selected: ${selectedName} | Wins: ${progress.wins}`;
+}
+
+function currentScrollSpeed(){
+  const base = BASE_SCROLL_SPEED + score * SPEED_RAMP_PER_SCORE;
+  return base * (keys.right ? BOOST_MULTIPLIER : 1);
+}
+
+function clearSprites(){
+  // remove all children
+  while(spritesLayer.firstChild) spritesLayer.removeChild(spritesLayer.firstChild);
+}
+
+function resetRun(){
+  // cleanup
+  clearSprites();
+  obstacles = [];
+
+  terrain = new Terrain();
+
+  // set current target
+  score = 0;
+  gameOver = false;
+  won = false;
+  targetScore = BASE_TARGET_SCORE + progress.wins * TARGET_INCREMENT;
+
+  // player
+  player = new Player(terrain, currentSkin);
+
+  // spawn timers
+  spawnTimer = 0;
+  spawnNextIn = rand(SPAWN_MIN, SPAWN_MAX);
+
+  setStatus(`Run! Target: ${targetScore} — Cat: ${currentSkin.name} — SCALE: ${SCALE}x`);
+}
+
+function spawnObstacle(){
+  // weighted pick between air and ground
+  const wantAir = Math.random() < AIR_CHANCE;
+  const pool = OBSTACLE_LIBRARY.filter(o => o.type === (wantAir ? "overhead" : "ground"));
+  const def = (pool.length ? pool : OBSTACLE_LIBRARY)[Math.floor(Math.random()*(pool.length ? pool.length : OBSTACLE_LIBRARY.length))];
+  obstacles.push(new Obstacle(def, terrain, W + 120));
+}
+
+function drawOverlay(){
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.font = "16px ui-monospace, monospace";
+  ctx.fillText(`Score: ${score}`, 18, 26);
+  ctx.fillText(`Target: ${targetScore}`, 18, 48);
+  ctx.fillStyle = "rgba(255,255,255,0.70)";
+  ctx.fillText(`Speed: ${Math.round(currentScrollSpeed())} px/s${keys.right ? " (DASH)" : ""}`, 18, 70);
+
+  if(player?.paused){
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "28px ui-monospace, monospace";
+    ctx.fillText("PAUSED", W/2 - 60, H/2 - 10);
+    ctx.font = "14px ui-monospace, monospace";
+    ctx.fillText("Press ← to resume", W/2 - 78, H/2 + 18);
+  }
+
+  if(gameOver){
+    ctx.fillStyle = "rgba(255, 80, 120, 0.95)";
+    ctx.font = "32px ui-monospace, monospace";
+    ctx.fillText("CRASHED", W/2 - 76, H/2 - 10);
+    ctx.font = "14px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText("Press R to restart", W/2 - 80, H/2 + 20);
+  }
+
+  if(won){
+    ctx.fillStyle = "rgba(120, 255, 200, 0.95)";
+    ctx.font = "32px ui-monospace, monospace";
+    ctx.fillText("YOU WIN", W/2 - 70, H/2 - 10);
+    ctx.font = "14px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText("Press R for next run", W/2 - 92, H/2 + 20);
+  }
+  ctx.restore();
+}
+
+function loop(now){
+  const dt = clamp((now - lastT)/1000, 0, 1/20);
+  lastT = now;
+
+  ctx.clearRect(0,0,W,H);
+
+  const frozen = player?.paused || gameOver || won;
+  const spd = currentScrollSpeed();
+
+  if(!frozen){
+    terrain.update(dt, spd);
+  }
+
+  terrain.draw();
+
+  // update player physics
+  player.update(dt);
+
+  // spawn obstacles
+  if(!frozen){
+    spawnTimer += dt;
+    if(spawnTimer >= spawnNextIn){
+      spawnObstacle();
+      spawnTimer = 0;
+      spawnNextIn = rand(SPAWN_MIN, SPAWN_MAX);
+    }
+  }
+
+  
+// spawn power-ups
+if(!frozen){
+  powerTimer += dt;
+  if(powerTimer >= powerNextIn && powerUps.length < POWERUP_MAX_ACTIVE){
+    powerUps.push(new PowerUp(POWERUP_YARN_URL, terrain, W + 160));
+    powerTimer = 0;
+    powerNextIn = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
+  }
+}
+
+// update obstacles + scoring
+  for(let i=obstacles.length-1; i>=0; i--){
+    const o = obstacles[i];
+    if(!frozen) o.update(dt, spd);
+
+    if(!o.passed && o.x + o.w < player.x){
+      o.passed = true;
+      if(!frozen && !gameOver && !won) score += 1;
+    }
+
+    if(o.offscreen()){
+      o.destroy();
+      obstacles.splice(i,1);
+    }
+  }
+// update power-ups + collection
+for(let i=powerUps.length-1; i>=0; i--){
+  const pu = powerUps[i];
+  if(!frozen) pu.update(dt, spd);
+
+  if(pu.offscreen()){
+    pu.destroy();
+    powerUps.splice(i,1);
+    continue;
+  }
+
+  // collect
+  if(!frozen && !gameOver && !won){
+    const phb = pu.hitbox();
+    const hb  = player.hitbox();
+    if(aabb(hb.x,hb.y,hb.w,hb.h, phb.x,phb.y,phb.w,phb.h)){
+      score += POWERUP_SCORE_BONUS;
+
+      pu.destroy();
+      powerUps.splice(i,1);
+
+      setStatus(`+${POWERUP_SCORE_BONUS}! Target: ${targetScore} — Cat: ${currentSkin.name}`);
+    }
+  }
+}
+
+
+
+  // collision
+  if(!frozen && !gameOver && !won){
+    const p = player.hitbox();
+    for(const o of obstacles){
+      const hb = o.hitbox();
+      if(aabb(p.x,p.y,p.w,p.h, hb.x,hb.y,hb.w,hb.h)){
+        gameOver = true;
+        setStatus(`Oof. Press R. Target was ${targetScore}.`);
+        break;
+      }
+    }
+  }
+
+  // win
+  if(!frozen && !gameOver && !won && score >= targetScore){
+    won = true;
+
+    if(progress.unlocked < CAT_NAMES_IN_ORDER.length){
+      progress.unlocked += 1;
+    }
+    progress.wins += 1;
+    saveProgress(progress);
+    updateHUD();
+
+    const unlockedName = CAT_NAMES_IN_ORDER[progress.unlocked-1];
+    setStatus(unlockedName ? `WIN! Unlocked: ${unlockedName}. Press R.` : `WIN! Press R.`);
+  }
+
+  // update player sprite (DOM)
+  const isDashing = keys.right && !player.paused && !gameOver && !won;
+  player.applyVisual(isDashing);
+
+  drawOverlay();
+  requestAnimationFrame(loop);
+}
+
+/* =========================
+   INPUT
+   ========================= */
+document.addEventListener("keydown", (e)=>{
+  if(e.code === "ArrowUp"){ player.jump(); e.preventDefault(); }
+  if(e.code === "ArrowDown"){ player.setDuck(true); e.preventDefault(); }
+  if(e.code === "ArrowRight"){ keys.right = true; e.preventDefault(); }
+  if(e.code === "ArrowLeft"){
+    player.togglePause();
+    if(player.paused) setStatus("Paused. Press ← again to resume.");
+    else setStatus(`Run! Target: ${targetScore} — Cat: ${currentSkin.name}`);
+    e.preventDefault();
+  }
+  if(e.code === "KeyR"){ resetRun(); e.preventDefault(); }
+});
+document.addEventListener("keyup", (e)=>{
+  if(e.code === "ArrowDown"){ player.setDuck(false); }
+  if(e.code === "ArrowRight"){ keys.right = false; }
+});
+
+/* =========================
+   RESET PROGRESS (press twice)
+   ========================= */
+const resetBtn = document.getElementById("resetBtn");
+let resetArmed = false;
+let resetArmTimeout = null;
+
+resetBtn.addEventListener("click", ()=>{
+  if(!resetArmed){
+    resetArmed = true;
+    resetBtn.classList.add("armed");
+    resetBtn.textContent = "Confirm Reset";
+    clearTimeout(resetArmTimeout);
+    resetArmTimeout = setTimeout(()=>{
+      resetArmed = false;
+      resetBtn.classList.remove("armed");
+      resetBtn.textContent = "Reset";
+    }, 2500);
+    return;
+  }
+
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+});
+
+/* =========================
+   CAT CYCLING
+   ========================= */
+statusEl.style.cursor = "pointer";
+statusEl.title = "Click to cycle unlocked cats";
+statusEl.addEventListener("click", ()=>{
+  const max = progress.unlocked - 1;
+  progress.selected = (progress.selected + 1) % (max + 1);
+  saveProgress(progress);
+
+  currentSkin = skins[progress.selected] || skins[0];
+  updateHUD();
+  resetRun();
+});
+
+/* =========================
+   INIT
+   ========================= */
+async function init(){
+  if(progress.selected > progress.unlocked - 1){
+    progress.selected = progress.unlocked - 1;
+    saveProgress(progress);
+  }
+  updateHUD();
+
+  skins = CAT_NAMES_IN_ORDER.map(n => new CatSkin(n));
+  currentSkin = skins[progress.selected];
+
+  resetRun();
+  requestAnimationFrame(loop);
+}
+init();
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js");
+  }
+</script>
+</body>
+</html>
