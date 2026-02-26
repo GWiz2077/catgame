@@ -336,7 +336,7 @@ const DUCK_DROP_PX = Math.max(2, Math.round(CAT_DRAW_H * 0.06));
 const DUCK_HITBOX_SCALE_Y = 0.62;
 
 // Terrain
-let TERRAIN_BASE_Y = H * 0.80;
+let TERRAIN_BASE_Y = 380 * 0.80;
 const TERRAIN_AMPLITUDE = 10;
 const TERRAIN_WAVELENGTH = 520;
 const TERRAIN_DETAIL = 0.35;
@@ -1138,6 +1138,7 @@ async function init(){
   skinsByName = Object.fromEntries(ALL_CATS.map(n => [n, new CatSkin(n)]));
   currentSkin = getSkinByName(getSelectedName());
   resizeViewport();
+  terrain = new Terrain();  // <-- ADD THIS (so it picks up new base Y)
   updateHUD();
   requestAnimationFrame(loop);
 }
