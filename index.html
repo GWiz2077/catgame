@@ -17,7 +17,9 @@
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#05050a; color:#fff; font-family: ui-monospace, Consolas, monospace; }
   #wrap { height:100vh; box-sizing:border-box; display:flex; justify-content:center; align-items:flex-start; padding:14px 14px calc(190px + env(safe-area-inset-bottom)); }
-
+* {
+  box-sizing: border-box;
+}
   #frame{
     position: relative;
     width: 980px;
@@ -186,7 +188,7 @@
   body{ --hudH: 230px; }
   #frame{ height: calc(100vh - var(--hudH)); max-height: calc(100vh - var(--hudH)); }
   #hud{
-    position: fixed; left: 0; right: 0; bottom: 0;
+    position: fixed; left: 0; width: 100%; bottom: 0;
     max-width: none; margin: 0;
     padding: 12px 12px calc(env(safe-area-inset-bottom) + 12px);
     display: flex; flex-direction: column; gap: 10px;
