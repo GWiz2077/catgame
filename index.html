@@ -1127,9 +1127,39 @@ resetBtn.addEventListener("click", ()=>{
     }, 2500);
     return;
   }
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(ENDLESS_BEST_KEY);
-  location.reload();
+
+  // 1) Clear saved data
+  try{
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(ENDLESS_BEST_KEY);
+  }catch{}
+
+  // 2) Rebuild runtime state WITHOUT reloading the page
+  resetArmed = false;
+  resetBtn.classList.remove("armed");
+  resetBtn.textContent = "Reset";
+
+  // Fresh progress + best
+  progress = loadProgress();
+  endlessBest = 0;
+
+  // Ensure skin map exists, re-select current skin
+  skinsByName = Object.fromEntries(ALL_CATS.map(n => [n, new CatSkin(n)]));
+  currentSkin = getSkinByName(getSelectedName());
+
+  // Clear gameplay objects
+  keys.right = false;
+  gameOver = false;
+  won = false;
+  score = 0;
+  konamiReset();
+
+  // Rebuild canvas sizing + terrain and go to start screen
+  try{ resizeViewport(); }catch{}
+  terrain = new Terrain();
+
+  goToStartScreen();   // shows Start / Endless overlay and pauses everything
+  updateHUD();
 });
 
 /* =========================
