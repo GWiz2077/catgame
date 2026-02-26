@@ -336,7 +336,7 @@ const DUCK_DROP_PX = Math.max(2, Math.round(CAT_DRAW_H * 0.06));
 const DUCK_HITBOX_SCALE_Y = 0.62;
 
 // Terrain
-const TERRAIN_BASE_Y = 380 * 0.80;
+let TERRAIN_BASE_Y = H * 0.80;
 const TERRAIN_AMPLITUDE = 10;
 const TERRAIN_WAVELENGTH = 520;
 const TERRAIN_DETAIL = 0.35;
@@ -353,7 +353,7 @@ const canvas = document.getElementById("bg");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-const W = canvas.width, H = canvas.height;
+let W = canvas.width, H = canvas.height;
 const spritesLayer = document.getElementById("sprites");
 const catsEl = document.getElementById("cats");
 
@@ -363,6 +363,32 @@ const endlessBtn = document.getElementById("btnEndless");
 
 let started = false;
 let gameMode = "story"; // "story" | "endless"
+
+
+
+  const frameEl = document.getElementById("frame");
+
+function resizeViewport(){
+  const r = frameEl.getBoundingClientRect();
+  canvas.width  = Math.round(r.width);
+  canvas.height = Math.round(r.height);
+  ctx.imageSmoothingEnabled = false;
+
+  W = canvas.width;
+  H = canvas.height;
+
+  TERRAIN_BASE_Y = H * 0.80;
+}
+
+window.addEventListener("resize", ()=>{
+  resizeViewport();
+  // rebuild terrain so height uses new base
+  terrain = new Terrain();
+  if(started) resetRun();
+}, {passive:true});
+
+
+  
 
 function startGame(mode="story"){
   if(started) return;
@@ -1111,6 +1137,7 @@ async function init(){
   ensureSelectedInRange();
   skinsByName = Object.fromEntries(ALL_CATS.map(n => [n, new CatSkin(n)]));
   currentSkin = getSkinByName(getSelectedName());
+  resizeViewport();
   updateHUD();
   requestAnimationFrame(loop);
 }
